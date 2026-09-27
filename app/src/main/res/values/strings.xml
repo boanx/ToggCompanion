@@ -1,0 +1,142 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">T10F Asistan</string>
+    <string name="vehicle_title">Togg T10F Fastback</string>
+    <string name="plate_placeholder">06GDU258</string>
+    <string name="status_live">CANLI</string>
+    <string name="status_demo">DEMO</string>
+
+    <!-- Tab Titles with Minimalist Icons -->
+    <string name="tab_home">🏠 Ana Sayfa</string>
+    <string name="tab_battery">⚡ Batarya</string>
+    <string name="tab_aux_battery">🔋 12V Akü</string>
+    <string name="tab_tires">🛞 Lastikler</string>
+    <string name="tab_climate">❄️ Klima</string>
+    <string name="tab_security">🔒 Güvenlik</string>
+    <string name="tab_drive">📊 Sürüş</string>
+    <string name="tab_location">📍 Konum</string>
+
+    <!-- Trip Selection Pills -->
+    <string name="trip_current">Güncel Sürüş</string>
+    <string name="trip_last_charge">Son Şarjdan</string>
+    <string name="trip_my">Yolculuğum</string>
+    <string name="home_customize">⚙️ Ana Sayfayı Düzenle</string>
+    <string name="home_title">T10F Kontrol Paneli</string>
+
+    <!-- 1. Batarya & Şarj -->
+    <string name="battery_title">Yüksek Voltaj Batarya</string>
+    <string name="range_unit">km menzil</string>
+    <string name="not_charging">Şarjda Değil</string>
+    <string name="charging_active">Şarj Ediliyor</string>
+    <string name="charge_mode_label">Şarj Modu</string>
+    <string name="charge_remaining_time">Kalan Süre</string>
+    <string name="target_charge_limit">Hedef Şarj Tavanı</string>
+    <string name="battery_capacity">Net Batarya Kapasitesi</string>
+    <string name="last_charge_session">Son Şarj Seansı</string>
+    <string name="action_ev_planner">Trumore Şarj Planlayıcı (EvPlanner)</string>
+
+    <!-- 2. 12V Destek Aküsü -->
+    <string name="aux_battery_title">12V Alçak Gerilim Aküsü</string>
+    <string name="aux_battery_ok">Akü Durumu Sağlıklı</string>
+    <string name="aux_battery_warn">Düşük Akü Seviyesi! Aracı çalıştırın.</string>
+    <string name="voltage_label">Anlık Voltaj</string>
+    <string name="aux_battery_guide_title">12V Destek Aküsünün Önemi</string>
+    <string name="aux_battery_guide_desc">Elektrikli araçlarda 12V akü, yüksek voltaj kontaktörlerini ve araç bilgisayarlarını devreye sokar. Seviye %60 altına indiğinde aracı çalıştırmanız önerilir.</string>
+
+    <!-- 3. Lastikler & TPMS -->
+    <string name="tpms_title">Lastik Basınç ve Sıcaklık (TPMS)</string>
+    <string name="front_left">Ön Sol</string>
+    <string name="front_right">Ön Sağ</string>
+    <string name="rear_left">Arka Sol</string>
+    <string name="rear_right">Arka Sağ</string>
+    <string name="tpms_sensor_status">Sensör Durumu</string>
+    <string name="tpms_sensor_ok">Tüm Sensörler Aktif ve Kalibre</string>
+    <string name="tpms_standard_label">Fabrika Tavsiye Basıncı</string>
+    <string name="tpms_standard_value">2.5 bar (36 PSI) Soğuk</string>
+
+    <!-- 4. İklimlendirme (HVAC) -->
+    <string name="hvac_title">İklimlendirme &amp; Sıcaklık</string>
+    <string name="cabin_temp">Kabin İçi</string>
+    <string name="target_temp">Hedef Derece</string>
+    <string name="outdoor_temp">Dış Ortam</string>
+    <string name="climate_control_title">Klima &amp; Ön Isıtma</string>
+    <string name="action_start_climate">Klimayı Başlat</string>
+    <string name="action_stop_climate">Klimayı Kapat</string>
+    <string name="climate_running">Klima Açık</string>
+    <string name="climate_off">Klima Kapalı</string>
+    <string name="action_defrost">Ön Cam Buğu Çöz</string>
+    <string name="seat_heaters_label">Koltuk &amp; Direksiyon Isıtma</string>
+    <string name="driver_seat">Sürücü Koltuğu</string>
+    <string name="passenger_seat">Ön Yolcu Koltuğu</string>
+    <string name="steering_heater">Direksiyon Isıtma</string>
+
+    <!-- 5. Güvenlik & Kapılar -->
+    <string name="controls_title">Merkezi Kilit &amp; Kapı Durumu</string>
+    <string name="door_locked">Kapılar Kilitli</string>
+    <string name="door_unlocked">Kapılar Açık</string>
+    <string name="action_toggle_doors">Kapıları Aç / Kilitle</string>
+    <string name="trunk_closed">Bagaj Kapalı</string>
+    <string name="trunk_opened">Bagaj Açık</string>
+    <string name="action_toggle_trunk">Bagaj Kapağı (Aç / Kapat)</string>
+    <string name="trunk_confirm_title">Bagaj Kapağı İşlemi</string>
+    <string name="trunk_confirm_msg">Togg T10F bagaj kapağını açmak veya kapatmak istediğinizden emin misiniz?</string>
+    <string name="door_fl">Sol Ön Kapı</string>
+    <string name="door_fr">Sağ Ön Kapı</string>
+    <string name="door_rl">Sol Arka Kapı</string>
+    <string name="door_rr">Sağ Arka Kapı</string>
+    <string name="frunk_status">Ön Kaput (Frunk)</string>
+    <string name="windows_status">Pencereler / Camlar</string>
+    <string name="charge_port_status">Şarj Port Kapağı</string>
+    <string name="sam_connection_status">SAM Bluetooth Anahtar</string>
+    <string name="state_closed">Kapalı</string>
+    <string name="state_open">Açık</string>
+    <string name="state_connected">Menzilde / Bağlı</string>
+
+    <!-- 6. Sürüş İstatistikleri -->
+    <string name="drive_stats_title">Sürüş İstatistikleri</string>
+    <string name="total_odometer">Toplam Kilometre</string>
+    <string name="drive_mode_label">Aktif Sürüş Modu</string>
+    <string name="last_trip_title">Yolculuk Özeti</string>
+    <string name="trip_distance">Katedilen Yol</string>
+    <string name="trip_duration">Sürüş Süresi</string>
+    <string name="avg_consumption">Ortalama Tüketim</string>
+    <string name="avg_speed">Ortalama Sürat</string>
+
+    <!-- 7. Konum & Park -->
+    <string name="location_title">Araç Konumu &amp; Park</string>
+    <string name="park_location_title">Son Park Yeri</string>
+    <string name="park_duration_title">Parkta Geçen Süre</string>
+    <string name="gps_coordinates">GPS Koordinatları</string>
+    <string name="action_walk_to_car">Aracıma Yürü (Haritada Aç)</string>
+
+    <!-- App Actions & Settings -->
+    <string name="action_open_trumore">Trumore Cihazımı Aç</string>
+    <string name="action_smart_access">Akıllı Erişim (SAM)</string>
+    <string name="action_refresh">Yenile</string>
+    <string name="action_settings">Ayarlar</string>
+
+    <string name="settings_title">Bağlantı &amp; Togg ID Ayarları</string>
+    <string name="settings_token_label">Togg ID Access Token (Opsiyonel)</string>
+    <string name="settings_vin_label">Araç VIN Numarası</string>
+    <string name="settings_plate_label">Araç Plakası</string>
+    <string name="settings_demo_mode">Simülasyon Modu (Token olmadan test)</string>
+    <string name="btn_save">Kaydet</string>
+    <string name="btn_cancel">İptal</string>
+
+    <!-- Samsung Modlar & Rutinler / Android Shortcuts -->
+    <string name="shortcut_lock_short">Kapıları Kilitle</string>
+    <string name="shortcut_lock_long">Togg T10F: Kapıları Kilitle</string>
+    <string name="shortcut_unlock_short">Kapı Kilidini Aç</string>
+    <string name="shortcut_unlock_long">Togg T10F: Kapı Kilidini Aç</string>
+    <string name="shortcut_climate_start_short">Klimayı Aç</string>
+    <string name="shortcut_climate_start_long">Togg T10F: Ön İklimlendirmeyi Başlat</string>
+    <string name="shortcut_climate_stop_short">Klimayı Kapat</string>
+    <string name="shortcut_climate_stop_long">Togg T10F: Klimayı Kapat</string>
+    <string name="shortcut_defrost_short">Ön Cam Buğu Çöz</string>
+    <string name="shortcut_defrost_long">Togg T10F: Ön Cam Rezistansını Aç</string>
+    <string name="shortcut_trunk_short">Bagaj Kapağı</string>
+    <string name="shortcut_trunk_long">Togg T10F: Bagaj Kapağını Aç / Kapat</string>
+    <string name="shortcut_locate_short">Aracımın Konumu</string>
+    <string name="shortcut_locate_long">Togg T10F: Aracımın Konumunu Göster</string>
+</resources>
+

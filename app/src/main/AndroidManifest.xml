@@ -1,0 +1,91 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+
+    <queries>
+        <package android:name="com.togg.toggmobile" />
+    </queries>
+
+    <application
+        android:allowBackup="false"
+        android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher_round"
+        android:label="@string/app_name"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.ToggCompanion"
+        android:usesCleartextTraffic="false">
+
+        <activity
+            android:name="com.togg.companion.ui.MainActivity"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+            <!-- Samsung Modes & Routines and App Shortcuts Integration -->
+            <meta-data
+                android:name="android.app.shortcuts"
+                android:resource="@xml/shortcuts" />
+        </activity>
+
+        <!-- Headless / Action Dispatcher for Samsung Modes & Routines and Deep Links -->
+        <activity
+            android:name="com.togg.companion.ui.ToggActionActivity"
+            android:exported="true"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar"
+            android:excludeFromRecents="true"
+            android:taskAffinity="">
+            <intent-filter>
+                <action android:name="com.togg.companion.ACTION_LOCK" />
+                <action android:name="com.togg.companion.ACTION_UNLOCK" />
+                <action android:name="com.togg.companion.ACTION_CLIMATE_START" />
+                <action android:name="com.togg.companion.ACTION_CLIMATE_STOP" />
+                <action android:name="com.togg.companion.ACTION_DEFROST" />
+                <action android:name="com.togg.companion.ACTION_TRUNK_TOGGLE" />
+                <action android:name="com.togg.companion.ACTION_LOCATE" />
+                <action android:name="com.togg.companion.ACTION_REFRESH" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+            <!-- Deep Link Handler: togg://action?cmd=lock -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="togg" android:host="action" />
+            </intent-filter>
+        </activity>
+
+        <!-- Automation BroadcastReceiver for Samsung Routines+ / Automation Apps -->
+        <receiver
+            android:name="com.togg.companion.ui.ToggActionReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="com.togg.companion.ACTION_LOCK" />
+                <action android:name="com.togg.companion.ACTION_UNLOCK" />
+                <action android:name="com.togg.companion.ACTION_CLIMATE_START" />
+                <action android:name="com.togg.companion.ACTION_CLIMATE_STOP" />
+                <action android:name="com.togg.companion.ACTION_DEFROST" />
+                <action android:name="com.togg.companion.ACTION_TRUNK_TOGGLE" />
+            </intent-filter>
+        </receiver>
+
+        <activity
+            android:name="com.togg.companion.ui.ToggLoginActivity"
+            android:exported="false"
+            android:label="Togg ID Giriş"
+            android:windowSoftInputMode="adjustResize" />
+
+        <!-- Wearable Data Listener Service for Samsung Galaxy Watch -->
+        <service
+            android:name="com.togg.companion.wearable.PhoneWearListenerService"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="com.google.android.gms.wearable.MESSAGE_RECEIVED" />
+                <data android:scheme="wear" android:host="*" android:pathPrefix="/request_telemetry" />
+            </intent-filter>
+        </service>
+    </application>
+
+</manifest>

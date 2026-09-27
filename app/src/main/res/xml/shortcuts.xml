@@ -1,0 +1,110 @@
+<?xml version="1.0" encoding="utf-8"?>
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- 1. Kapıları Kilitle -->
+    <shortcut
+        android:shortcutId="shortcut_lock"
+        android:enabled="true"
+        android:icon="@drawable/ic_launcher_foreground"
+        android:shortcutShortLabel="@string/shortcut_lock_short"
+        android:shortcutLongLabel="@string/shortcut_lock_long">
+        <intent
+            android:action="com.togg.companion.ACTION_LOCK"
+            android:targetPackage="com.togg.companion"
+            android:targetClass="com.togg.companion.ui.ToggActionActivity">
+            <extra android:name="action_command" android:value="lock" />
+        </intent>
+        <categories android:name="android.shortcut.conversation" />
+    </shortcut>
+
+    <!-- 2. Kapı Kilidini Aç -->
+    <shortcut
+        android:shortcutId="shortcut_unlock"
+        android:enabled="true"
+        android:icon="@drawable/ic_launcher_foreground"
+        android:shortcutShortLabel="@string/shortcut_unlock_short"
+        android:shortcutLongLabel="@string/shortcut_unlock_long">
+        <intent
+            android:action="com.togg.companion.ACTION_UNLOCK"
+            android:targetPackage="com.togg.companion"
+            android:targetClass="com.togg.companion.ui.ToggActionActivity">
+            <extra android:name="action_command" android:value="unlock" />
+        </intent>
+    </shortcut>
+
+    <!-- 3. Klimayı Aç (Ön İklimlendirme) -->
+    <shortcut
+        android:shortcutId="shortcut_climate_start"
+        android:enabled="true"
+        android:icon="@drawable/ic_launcher_foreground"
+        android:shortcutShortLabel="@string/shortcut_climate_start_short"
+        android:shortcutLongLabel="@string/shortcut_climate_start_long">
+        <intent
+            android:action="com.togg.companion.ACTION_CLIMATE_START"
+            android:targetPackage="com.togg.companion"
+            android:targetClass="com.togg.companion.ui.ToggActionActivity">
+            <extra android:name="action_command" android:value="climate_start" />
+        </intent>
+    </shortcut>
+
+    <!-- 4. Klimayı Kapat -->
+    <shortcut
+        android:shortcutId="shortcut_climate_stop"
+        android:enabled="true"
+        android:icon="@drawable/ic_launcher_foreground"
+        android:shortcutShortLabel="@string/shortcut_climate_stop_short"
+        android:shortcutLongLabel="@string/shortcut_climate_stop_long">
+        <intent
+            android:action="com.togg.companion.ACTION_CLIMATE_STOP"
+            android:targetPackage="com.togg.companion"
+            android:targetClass="com.togg.companion.ui.ToggActionActivity">
+            <extra android:name="action_command" android:value="climate_stop" />
+        </intent>
+    </shortcut>
+
+    <!-- 5. Ön Cam Buğu Çöz (Defrost) -->
+    <shortcut
+        android:shortcutId="shortcut_defrost"
+        android:enabled="true"
+        android:icon="@drawable/ic_launcher_foreground"
+        android:shortcutShortLabel="@string/shortcut_defrost_short"
+        android:shortcutLongLabel="@string/shortcut_defrost_long">
+        <intent
+            android:action="com.togg.companion.ACTION_DEFROST"
+            android:targetPackage="com.togg.companion"
+            android:targetClass="com.togg.companion.ui.ToggActionActivity">
+            <extra android:name="action_command" android:value="defrost" />
+        </intent>
+    </shortcut>
+
+    <!-- 6. Bagaj Kapağı Kontrolü -->
+    <shortcut
+        android:shortcutId="shortcut_trunk"
+        android:enabled="true"
+        android:icon="@drawable/ic_launcher_foreground"
+        android:shortcutShortLabel="@string/shortcut_trunk_short"
+        android:shortcutLongLabel="@string/shortcut_trunk_long">
+        <intent
+            android:action="com.togg.companion.ACTION_TRUNK_TOGGLE"
+            android:targetPackage="com.togg.companion"
+            android:targetClass="com.togg.companion.ui.ToggActionActivity">
+            <extra android:name="action_command" android:value="trunk" />
+        </intent>
+    </shortcut>
+
+    <!-- 7. Araç Konumunu Göster -->
+    <shortcut
+        android:shortcutId="shortcut_locate"
+        android:enabled="true"
+        android:icon="@drawable/ic_launcher_foreground"
+        android:shortcutShortLabel="@string/shortcut_locate_short"
+        android:shortcutLongLabel="@string/shortcut_locate_long">
+        <intent
+            android:action="com.togg.companion.ACTION_LOCATE"
+            android:targetPackage="com.togg.companion"
+            android:targetClass="com.togg.companion.ui.ToggActionActivity">
+            <extra android:name="action_command" android:value="locate" />
+        </intent>
+    </shortcut>
+
+</shortcuts>

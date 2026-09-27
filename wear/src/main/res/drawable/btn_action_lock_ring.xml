@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Outer Arc Ring Glow -->
+    <item>
+        <shape android:shape="oval">
+            <size
+                android:width="54dp"
+                android:height="54dp" />
+            <stroke
+                android:width="2dp"
+                android:color="#E0E7FF" />
+            <solid android:color="@android:color/transparent" />
+        </shape>
+    </item>
+    <!-- Inner Dark Circle -->
+    <item
+        android:bottom="2dp"
+        android:left="2dp"
+        android:right="2dp"
+        android:top="2dp">
+        <shape android:shape="oval">
+            <solid android:color="#1F232B" />
+        </shape>
+    </item>
+</layer-list>

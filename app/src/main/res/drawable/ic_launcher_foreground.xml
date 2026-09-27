@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- Outer Precision Ring (White with subtle transparency) -->
+    <path
+        android:strokeColor="#55FFFFFF"
+        android:strokeWidth="1.5"
+        android:pathData="M 54,18 A 36,36 0 1,0 54,90 A 36,36 0 1,0 54,18" />
+
+    <!-- Red Wing / Chevron (Left side, Turkish Red) -->
+    <path
+        android:fillColor="#E30613"
+        android:pathData="M 48,36 L 28,54 L 48,72 L 44,72 L 22,54 L 44,36 Z" />
+    <path
+        android:fillColor="#FF334B"
+        android:pathData="M 44,40 L 30,54 L 44,68 L 41,68 L 26,54 L 41,40 Z" />
+
+    <!-- Blue Wing / Chevron (Right side, Togg Electric Blue) -->
+    <path
+        android:fillColor="#00A3E0"
+        android:pathData="M 60,36 L 80,54 L 60,72 L 64,72 L 86,54 L 64,36 Z" />
+    <path
+        android:fillColor="#33C2FF"
+        android:pathData="M 64,40 L 78,54 L 64,68 L 67,68 L 82,54 L 67,40 Z" />
+
+    <!-- Central Diamond Core (Pure Crisp White) -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M 54,44 L 62,54 L 54,64 L 46,54 Z" />
+
+    <!-- Top & Bottom White Accent Pointers -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M 53,24 L 55,24 L 55,30 L 53,30 Z" />
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M 53,78 L 55,78 L 55,84 L 53,84 Z" />
+
+    <!-- Left Red Indicator Dot & Right Blue Indicator Dot -->
+    <path
+        android:fillColor="#E30613"
+        android:pathData="M 17,54 A 3,3 0 1,0 17,53.9 Z" />
+    <path
+        android:fillColor="#00A3E0"
+        android:pathData="M 91,54 A 3,3 0 1,0 91,53.9 Z" />
+</vector>

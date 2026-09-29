@@ -24,6 +24,9 @@ public final class WearSyncManager {
 
     public static final String PATH_TELEMETRY = "/togg_telemetry";
     public static final String PATH_REQUEST_SYNC = "/request_telemetry";
+    public static final String PATH_DIGITAL_KEY = "/togg_digital_key";
+    public static final String PATH_REQUEST_KEY = "/request_digital_key";
+    public static final String PATH_KEY_ACTION = "/execute_key_action";
 
     public static final String KEY_SOC = "soc";
     public static final String KEY_RANGE_KM = "range_km";
@@ -39,7 +42,74 @@ public final class WearSyncManager {
     public static final String KEY_TIMESTAMP = "timestamp";
     public static final String KEY_SYNC_ID = "sync_id";
 
+    // Digital Key fields
+    public static final String KEY_DK_ID = "dk_id";
+    public static final String KEY_DK_SE_ID = "dk_se_id";
+    public static final String KEY_DK_VIN = "dk_vin";
+    public static final String KEY_DK_PLATE = "dk_plate";
+    public static final String KEY_DK_HOLDER = "dk_holder";
+    public static final String KEY_DK_VALID_UNTIL = "dk_valid_until";
+    public static final String KEY_DK_TOKEN = "dk_token";
+    public static final String KEY_DK_CAN_LOCK = "dk_can_lock";
+    public static final String KEY_DK_CAN_UNLOCK = "dk_can_unlock";
+    public static final String KEY_DK_CAN_TRUNK = "dk_can_trunk";
+    public static final String KEY_DK_CAN_CLIMATE = "dk_can_climate";
+    public static final String KEY_DK_IS_ACTIVE = "dk_is_active";
+    public static final String KEY_DK_SYNC_TIME = "dk_sync_time";
+
     private WearSyncManager() {}
+
+    public static void syncDigitalKey(Context context, com.togg.companion.core.DigitalKey digitalKey) {
+        if (context == null) return;
+
+        new Thread(() -> {
+            try {
+                PutDataMapRequest putDataMapReq = PutDataMapRequest.create(PATH_DIGITAL_KEY);
+                boolean hasKey = digitalKey != null && digitalKey.isValid();
+                putDataMapReq.getDataMap().putBoolean(KEY_DK_IS_ACTIVE, hasKey);
+
+                if (hasKey) {
+                    putDataMapReq.getDataMap().putString(KEY_DK_ID, digitalKey.keyId);
+                    putDataMapReq.getDataMap().putString(KEY_DK_SE_ID, digitalKey.seId);
+                    putDataMapReq.getDataMap().putString(KEY_DK_VIN, digitalKey.vehicleVin);
+                    putDataMapReq.getDataMap().putString(KEY_DK_PLATE, digitalKey.vehiclePlate);
+                    putDataMapReq.getDataMap().putString(KEY_DK_HOLDER, digitalKey.recipientName);
+                    putDataMapReq.getDataMap().putLong(KEY_DK_VALID_UNTIL, digitalKey.validUntilMillis);
+                    putDataMapReq.getDataMap().putString(KEY_DK_TOKEN, digitalKey.keyToken);
+                    putDataMapReq.getDataMap().putBoolean(KEY_DK_CAN_LOCK, digitalKey.canLock);
+                    putDataMapReq.getDataMap().putBoolean(KEY_DK_CAN_UNLOCK, digitalKey.canUnlock);
+                    putDataMapReq.getDataMap().putBoolean(KEY_DK_CAN_TRUNK, digitalKey.canTrunk);
+                    putDataMapReq.getDataMap().putBoolean(KEY_DK_CAN_CLIMATE, digitalKey.canClimate);
+                } else {
+                    putDataMapReq.getDataMap().putString(KEY_DK_ID, "");
+                    putDataMapReq.getDataMap().putString(KEY_DK_TOKEN, "");
+                }
+                putDataMapReq.getDataMap().putLong(KEY_DK_SYNC_TIME, System.currentTimeMillis());
+
+                PutDataRequest putDataReq = putDataMapReq.asPutDataRequest();
+                putDataReq.setUrgent();
+
+                DataClient dataClient = Wearable.getDataClient(context);
+                dataClient.putDataItem(putDataReq).addOnSuccessListener(item -> {
+                    Log.d(TAG, "Digital Key synced to watch: " + (hasKey ? digitalKey.seId : "REMOVED"));
+                }).addOnFailureListener(e -> Log.w(TAG, "Failed to sync Digital Key to watch: " + e.getMessage()));
+
+                // Broadcast directly via message to connected nodes
+                Wearable.getNodeClient(context).getConnectedNodes().addOnSuccessListener(nodes -> {
+                    if (nodes != null) {
+                        String payload = hasKey ? digitalKey.toJson().toString() : "{\"isActive\":false}";
+                        byte[] bytes = payload.getBytes(StandardCharsets.UTF_8);
+                        for (Node node : nodes) {
+                            Wearable.getMessageClient(context).sendMessage(node.getId(), PATH_DIGITAL_KEY, bytes);
+                        }
+                    }
+                });
+
+            } catch (Exception e) {
+                Log.e(TAG, "Error syncing digital key to watch", e);
+            }
+        }).start();
+    }
 
     public static void syncTelemetry(Context context, VehicleTelemetry telemetry) {
         if (context == null || telemetry == null) return;

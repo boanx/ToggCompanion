@@ -1,0 +1,23 @@
+{"id":"AF001","s":"A0","p":"declares","o":"Phone companion declares INTERNET and ACCESS_NETWORK_STATE permissions, Trumore package query, launcher activity, action activity, and action receiver.","src":["F01"]}
+{"id":"AF002","s":"A0","p":"declares","o":"Phone application configures dynamic and static launcher shortcuts for Lock, Unlock, Climate, Defrost, Trunk, and Refresh actions.","src":["F01","F27"]}
+{"id":"AF003","s":"C1","p":"parses","o":"TelemetryParser parses vehicle JSON payload into high voltage battery SoC, remaining range, charge rate kW, 12V battery, tire PSI, locks, climate, and GPS coordinates.","src":["F02","F03"]}
+{"id":"AF004","s":"C1","p":"validates","o":"VehicleTelemetry checks 12V battery threshold (critical below 60%) and evaluates individual tire pressure warning states.","src":["F02","F03"]}
+{"id":"AF005","s":"C2","p":"stores","o":"SecureTokenStorage and ToggAuthManager securely encrypt and persist user auth tokens, refresh tokens, and session expiration timestamps.","src":["F04","F06"]}
+{"id":"AF006","s":"C3","p":"communicates","o":"TvaApiClient performs HTTPS network requests to Togg TVA cloud endpoints for telemetry retrieval, lock/unlock, climate start/stop, and locate horn/lights.","src":["F08"]}
+{"id":"AF007","s":"C4","p":"dispatches","o":"TrumoreBridge verifies com.togg.toggmobile package presence, launching direct intent integrations or Play Store fallback.","src":["F05"]}
+{"id":"AF008","s":"C5","p":"stores","o":"TelemetryDatabaseHelper caches vehicle telemetry records into local SQLite database for instant offline dashboard restoration.","src":["F07"]}
+{"id":"AF009","s":"S1","p":"synchronizes","o":"WearSyncManager and PhoneWearListenerService exchange telemetry data between phone and watch over Wearable Data Layer path /togg_telemetry.","src":["F13","F14"]}
+{"id":"AF010","s":"W0","p":"declares","o":"Wear OS watch application declares android.hardware.type.watch, fine/coarse location, vibration, wake lock, standalone metadata, and tile service provider.","src":["F15"]}
+{"id":"AF011","s":"U1","p":"renders","o":"MainActivity renders AMOLED dark UI with high voltage battery arc, remaining range, 12V status, 4-wheel tire pressures, vehicle lock switch, and climate toggle.","src":["F09","F22","F24"]}
+{"id":"AF012","s":"U2","p":"dispatches","o":"ToggActionActivity and ToggActionReceiver execute headless vehicle commands for Samsung Modes & Routines and togg://action URI intents.","src":["F10","F11"]}
+{"id":"AF013","s":"U3","p":"renders","o":"ToggLoginActivity presents credential input and handles session login with ToggAuthManager.","src":["F12","F25"]}
+{"id":"AF014","s":"U4","p":"renders","o":"Wear MainActivity renders circular AMOLED watch UI with battery SoC, range, 12V indicator, and live compass bearing toward vehicle GPS coordinates.","src":["F16","F18","F19","F30"]}
+{"id":"AF015","s":"U4","p":"dispatches","o":"Wear MainActivity launches Google Maps walking navigation directly to vehicle park coordinates.","src":["F16"]}
+{"id":"AF016","s":"U5","p":"renders","o":"ToggTileService provides Wear OS Tile for quick-glance battery, range, and 12V status without opening the main watch app.","src":["F17"]}
+{"id":"AF017","s":"T1","p":"validates","o":"TelemetryParserTest executes JUnit tests asserting proper parsing of vehicle battery, range, tires, locks, and location data.","src":["F31"]}
+{"id":"AF018","s":"T2","p":"validates","o":"validate-kb.cjs asserts JSONL integrity, entity and file ID uniqueness, source file existence, and index route consistency.","src":["F36"]}
+{"id":"AF019","s":"C6","p":"parses","o":"DigitalKey and DigitalKeyManager parse Trumore digital key invitations, deep links, URLs, and SE- reference codes, storing authorized credentials in SharedPreferences.","src":["F40","F41"]}
+{"id":"AF020","s":"S1","p":"synchronizes","o":"WearSyncManager broadcasts digital keys to connected Galaxy Watch nodes over /togg_digital_key and handles /execute_key_action execution on phone.","src":["F13","F14","F18","F20"]}
+{"id":"AF021","s":"U4","p":"renders","o":"Wear MainActivity renders active digital key card with remaining validity badge and quick lock/unlock actions.","src":["F16","F18","F30"]}
+{"id":"AF022","s":"T3","p":"validates","o":"DigitalKeyTest executes unit tests verifying Trumore URI parsing, reference code extraction, expiration checks, and JSON round-trip serialization.","src":["F42"]}
+

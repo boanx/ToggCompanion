@@ -37,6 +37,23 @@ public class PhoneWearListenerService extends WearableListenerService {
             } else {
                 Log.w(TAG, "No telemetry available to send to watch");
             }
+        } else if (messageEvent.getPath().equals(WearSyncManager.PATH_REQUEST_KEY)) {
+            Log.d(TAG, "Watch requested digital key sync");
+            com.togg.companion.core.DigitalKeyManager keyMgr = new com.togg.companion.core.DigitalKeyManager(this);
+            com.togg.companion.core.DigitalKey key = keyMgr.getActiveKey();
+            WearSyncManager.syncDigitalKey(this, key);
+        } else if (messageEvent.getPath().startsWith(WearSyncManager.PATH_KEY_ACTION)) {
+            String data = new String(messageEvent.getData(), java.nio.charset.StandardCharsets.UTF_8);
+            Log.d(TAG, "Watch executed digital key action: " + data);
+            if (MainActivity.getInstance() != null) {
+                MainActivity.getInstance().runOnUiThread(() -> {
+                    if (data.contains("lock")) {
+                        MainActivity.getInstance().executeDigitalKeyAction("lock");
+                    } else if (data.contains("unlock")) {
+                        MainActivity.getInstance().executeDigitalKeyAction("unlock");
+                    }
+                });
+            }
         }
     }
 }

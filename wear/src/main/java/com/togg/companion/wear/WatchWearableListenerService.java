@@ -24,6 +24,7 @@ import java.nio.charset.StandardCharsets;
 public class WatchWearableListenerService extends WearableListenerService {
     private static final String TAG = "WatchWearListener";
     private static final String PATH_TELEMETRY = "/togg_telemetry";
+    private static final String PATH_DIGITAL_KEY = "/togg_digital_key";
 
     @Override
     public void onDataChanged(@NonNull DataEventBuffer dataEvents) {
@@ -63,6 +64,33 @@ public class WatchWearableListenerService extends WearableListenerService {
                     } catch (Exception e) {
                         Log.e(TAG, "Error parsing telemetry DataMap", e);
                     }
+                } else if (uri.getPath() != null && uri.getPath().equals(PATH_DIGITAL_KEY)) {
+                    try {
+                        DataMap dataMap = DataMapItem.fromDataItem(item).getDataMap();
+                        boolean isActive = dataMap.getBoolean("dk_is_active", false);
+                        if (isActive) {
+                            WatchDataStore.WatchDigitalKey key = new WatchDataStore.WatchDigitalKey(
+                                    true,
+                                    dataMap.getString("dk_id", ""),
+                                    dataMap.getString("dk_se_id", ""),
+                                    dataMap.getString("dk_vin", "T10F"),
+                                    dataMap.getString("dk_plate", "34 TOGG 10"),
+                                    dataMap.getString("dk_holder", "Paylaşılan Kullanıcı"),
+                                    dataMap.getLong("dk_valid_until", 0),
+                                    dataMap.getString("dk_token", ""),
+                                    dataMap.getBoolean("dk_can_lock", true),
+                                    dataMap.getBoolean("dk_can_unlock", true)
+                            );
+                            WatchDataStore.saveDigitalKey(this, key);
+                            Log.d(TAG, "Watch received and saved Digital Key: " + key.seId);
+                        } else {
+                            WatchDataStore.removeDigitalKey(this);
+                            Log.d(TAG, "Watch received digital key removal");
+                        }
+                        ToggTileService.requestTileUpdate(this);
+                    } catch (Exception e) {
+                        Log.e(TAG, "Error parsing digital key DataMap", e);
+                    }
                 }
             }
         }
@@ -94,6 +122,33 @@ public class WatchWearableListenerService extends WearableListenerService {
                 ToggTileService.requestTileUpdate(this);
             } catch (Exception e) {
                 Log.e(TAG, "Error handling message telemetry", e);
+            }
+        } else if (PATH_DIGITAL_KEY.equals(messageEvent.getPath())) {
+            try {
+                String jsonStr = new String(messageEvent.getData(), StandardCharsets.UTF_8);
+                JSONObject obj = new JSONObject(jsonStr);
+                boolean isActive = obj.optBoolean("isActive", true);
+                if (isActive) {
+                    WatchDataStore.WatchDigitalKey key = new WatchDataStore.WatchDigitalKey(
+                            true,
+                            obj.optString("keyId"),
+                            obj.optString("seId"),
+                            obj.optString("vehicleVin", "T10F"),
+                            obj.optString("vehiclePlate", "34 TOGG 10"),
+                            obj.optString("recipientName", "Paylaşılan Kullanıcı"),
+                            obj.optLong("validUntilMillis", 0),
+                            obj.optString("keyToken"),
+                            obj.optBoolean("canLock", true),
+                            obj.optBoolean("canUnlock", true)
+                    );
+                    WatchDataStore.saveDigitalKey(this, key);
+                    Log.d(TAG, "Watch received message Digital Key: " + key.seId);
+                } else {
+                    WatchDataStore.removeDigitalKey(this);
+                }
+                ToggTileService.requestTileUpdate(this);
+            } catch (Exception e) {
+                Log.e(TAG, "Error handling message digital key", e);
             }
         }
     }

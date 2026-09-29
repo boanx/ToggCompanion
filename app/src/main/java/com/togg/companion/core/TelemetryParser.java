@@ -112,6 +112,9 @@ public final class TelemetryParser {
                 if (!isCharging) {
                     chargeModeDisplay = "Bağlı Değil";
                     chargePowerKw = 0.0;
+                } else if (chargePowerKw == 0.0) {
+                    chargePowerKw = findDouble(telem, 11.0, "chargePowerKw", "chargingPower", "power");
+                    chargeModeDisplay = "Şarj Oluyor (" + String.format(Locale.US, "%.1f kW", chargePowerKw) + ")";
                 }
             }
 

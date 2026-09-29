@@ -86,4 +86,125 @@ public final class WatchDataStore {
                 prefs.getLong(KEY_TIMESTAMP, System.currentTimeMillis())
         );
     }
+
+    // ==========================================
+    // WATCH DIGITAL KEY STORAGE
+    // ==========================================
+
+    private static final String KEY_DK_ACTIVE = "dk_active";
+    private static final String KEY_DK_ID = "dk_id";
+    private static final String KEY_DK_SE_ID = "dk_se_id";
+    private static final String KEY_DK_VIN = "dk_vin";
+    private static final String KEY_DK_PLATE = "dk_plate";
+    private static final String KEY_DK_HOLDER = "dk_holder";
+    private static final String KEY_DK_VALID_UNTIL = "dk_valid_until";
+    private static final String KEY_DK_TOKEN = "dk_token";
+    private static final String KEY_DK_CAN_LOCK = "dk_can_lock";
+    private static final String KEY_DK_CAN_UNLOCK = "dk_can_unlock";
+
+    public static class WatchDigitalKey {
+        public final boolean isActive;
+        public final String keyId;
+        public final String seId;
+        public final String vin;
+        public final String plate;
+        public final String holder;
+        public final long validUntil;
+        public final String token;
+        public final boolean canLock;
+        public final boolean canUnlock;
+
+        public WatchDigitalKey(boolean isActive, String keyId, String seId, String vin, String plate,
+                               String holder, long validUntil, String token, boolean canLock, boolean canUnlock) {
+            this.isActive = isActive;
+            this.keyId = keyId != null ? keyId : "";
+            this.seId = seId != null ? seId : "";
+            this.vin = vin != null ? vin : "T10F";
+            this.plate = plate != null ? plate : "34 TOGG 10";
+            this.holder = holder != null ? holder : "Paylaşılan Kullanıcı";
+            this.validUntil = validUntil;
+            this.token = token != null ? token : "";
+            this.canLock = canLock;
+            this.canUnlock = canUnlock;
+        }
+
+        public boolean isValid() {
+            return isActive && (validUntil <= 0 || System.currentTimeMillis() < validUntil) && !token.isEmpty();
+        }
+
+        public String getRemainingDays() {
+            if (validUntil <= 0) return "Sınırsız";
+            long diff = validUntil - System.currentTimeMillis();
+            if (diff <= 0) return "Süresi doldu";
+            long days = diff / (24L * 3600 * 1000);
+            if (days >= 1) return days + " gün geçerli";
+            long hours = diff / (3600 * 1000);
+            return Math.max(1, hours) + " saat geçerli";
+        }
+    }
+
+    public static void saveDigitalKey(Context context, WatchDigitalKey key) {
+        if (context == null || key == null) return;
+        SharedPreferences prefs = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE);
+        prefs.edit()
+                .putBoolean(KEY_DK_ACTIVE, key.isActive)
+                .putString(KEY_DK_ID, key.keyId)
+                .putString(KEY_DK_SE_ID, key.seId)
+                .putString(KEY_DK_VIN, key.vin)
+                .putString(KEY_DK_PLATE, key.plate)
+                .putString(KEY_DK_HOLDER, key.holder)
+                .putLong(KEY_DK_VALID_UNTIL, key.validUntil)
+                .putString(KEY_DK_TOKEN, key.token)
+                .putBoolean(KEY_DK_CAN_LOCK, key.canLock)
+                .putBoolean(KEY_DK_CAN_UNLOCK, key.canUnlock)
+                .apply();
+
+        WatchTelemetry t = getTelemetry(context);
+        for (OnDataChangeListener listener : listeners) {
+            try {
+                listener.onDataChanged(t);
+            } catch (Exception ignored) {}
+        }
+    }
+
+    public static WatchDigitalKey getDigitalKey(Context context) {
+        if (context == null) return null;
+        SharedPreferences prefs = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE);
+        if (!prefs.getBoolean(KEY_DK_ACTIVE, false)) {
+            return null;
+        }
+        return new WatchDigitalKey(
+                prefs.getBoolean(KEY_DK_ACTIVE, false),
+                prefs.getString(KEY_DK_ID, ""),
+                prefs.getString(KEY_DK_SE_ID, ""),
+                prefs.getString(KEY_DK_VIN, "T10F"),
+                prefs.getString(KEY_DK_PLATE, "34 TOGG 10"),
+                prefs.getString(KEY_DK_HOLDER, "Paylaşılan Kullanıcı"),
+                prefs.getLong(KEY_DK_VALID_UNTIL, 0),
+                prefs.getString(KEY_DK_TOKEN, ""),
+                prefs.getBoolean(KEY_DK_CAN_LOCK, true),
+                prefs.getBoolean(KEY_DK_CAN_UNLOCK, true)
+        );
+    }
+
+    public static boolean hasDigitalKey(Context context) {
+        WatchDigitalKey k = getDigitalKey(context);
+        return k != null && k.isValid();
+    }
+
+    public static void removeDigitalKey(Context context) {
+        if (context == null) return;
+        SharedPreferences prefs = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE);
+        prefs.edit()
+                .putBoolean(KEY_DK_ACTIVE, false)
+                .putString(KEY_DK_TOKEN, "")
+                .apply();
+
+        WatchTelemetry t = getTelemetry(context);
+        for (OnDataChangeListener listener : listeners) {
+            try {
+                listener.onDataChanged(t);
+            } catch (Exception ignored) {}
+        }
+    }
 }

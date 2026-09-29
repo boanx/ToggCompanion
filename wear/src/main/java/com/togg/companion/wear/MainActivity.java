@@ -14,6 +14,7 @@ import android.os.Bundle;
 import android.os.VibrationEffect;
 import android.os.Vibrator;
 import android.util.Log;
+import android.view.View;
 import android.widget.Button;
 import android.widget.TextView;
 import android.widget.Toast;
@@ -58,6 +59,13 @@ public class MainActivity extends Activity implements WatchDataStore.OnDataChang
     private TextView tvDistanceBearing;
     private Button btnWalkToCar;
 
+    // 5. Dijital Anahtar
+    private TextView tvWatchKeyBadge;
+    private TextView tvWatchKeyDetails;
+    private View layoutWatchKeyActions;
+    private Button btnWatchKeyLock;
+    private Button btnWatchKeyUnlock;
+
     // Refresh Action
     private Button btnSyncRequest;
 
@@ -97,6 +105,13 @@ public class MainActivity extends Activity implements WatchDataStore.OnDataChang
         tvDistanceBearing = findViewById(R.id.tv_distance_bearing);
         btnWalkToCar = findViewById(R.id.btn_walk_to_car);
 
+        // 5. Dijital Anahtar
+        tvWatchKeyBadge = findViewById(R.id.tv_watch_key_badge);
+        tvWatchKeyDetails = findViewById(R.id.tv_watch_key_details);
+        layoutWatchKeyActions = findViewById(R.id.layout_watch_key_actions);
+        btnWatchKeyLock = findViewById(R.id.btn_watch_key_lock);
+        btnWatchKeyUnlock = findViewById(R.id.btn_watch_key_unlock);
+
         btnSyncRequest = findViewById(R.id.btn_sync_request);
     }
 
@@ -105,6 +120,20 @@ public class MainActivity extends Activity implements WatchDataStore.OnDataChang
             vibrate(30);
             openWalkingNavigation();
         });
+
+        if (btnWatchKeyLock != null) {
+            btnWatchKeyLock.setOnClickListener(v -> {
+                vibrate(40);
+                executeWatchDigitalKeyCommand("lock");
+            });
+        }
+
+        if (btnWatchKeyUnlock != null) {
+            btnWatchKeyUnlock.setOnClickListener(v -> {
+                vibrate(40);
+                executeWatchDigitalKeyCommand("unlock");
+            });
+        }
 
         btnSyncRequest.setOnClickListener(v -> {
             vibrate(40);
@@ -192,6 +221,80 @@ public class MainActivity extends Activity implements WatchDataStore.OnDataChang
         } else {
             tvDistanceBearing.setText("📍 Konum hazır (Haritada Aç)");
         }
+
+        // 5. Dijital Anahtar Durumu
+        renderDigitalKeyUi();
+    }
+
+    private void renderDigitalKeyUi() {
+        WatchDataStore.WatchDigitalKey key = WatchDataStore.getDigitalKey(this);
+        if (key != null && key.isValid()) {
+            if (tvWatchKeyBadge != null) {
+                tvWatchKeyBadge.setText("AKTİF");
+                tvWatchKeyBadge.setTextColor(getColor(R.color.status_green));
+            }
+            if (tvWatchKeyDetails != null) {
+                String details = key.plate + " • " + key.getRemainingDays();
+                if (key.seId != null && !key.seId.isEmpty()) {
+                    details += "\nSE-ID: " + key.seId;
+                }
+                tvWatchKeyDetails.setText(details);
+            }
+            if (layoutWatchKeyActions != null) {
+                layoutWatchKeyActions.setVisibility(View.VISIBLE);
+            }
+            if (btnWatchKeyLock != null) {
+                btnWatchKeyLock.setEnabled(key.canLock);
+            }
+            if (btnWatchKeyUnlock != null) {
+                btnWatchKeyUnlock.setEnabled(key.canUnlock);
+            }
+        } else if (key != null && !key.isValid()) {
+            if (tvWatchKeyBadge != null) {
+                tvWatchKeyBadge.setText("SÜRESİ DOLDU");
+                tvWatchKeyBadge.setTextColor(getColor(R.color.status_red));
+            }
+            if (tvWatchKeyDetails != null) {
+                tvWatchKeyDetails.setText("Anahtarın kullanım süresi dolmuş");
+            }
+            if (layoutWatchKeyActions != null) {
+                layoutWatchKeyActions.setVisibility(View.GONE);
+            }
+        } else {
+            if (tvWatchKeyBadge != null) {
+                tvWatchKeyBadge.setText("YOK");
+                tvWatchKeyBadge.setTextColor(getColor(R.color.text_muted));
+            }
+            if (tvWatchKeyDetails != null) {
+                tvWatchKeyDetails.setText("Anahtar telefondan senkronize edilmedi");
+            }
+            if (layoutWatchKeyActions != null) {
+                layoutWatchKeyActions.setVisibility(View.GONE);
+            }
+        }
+    }
+
+    private void executeWatchDigitalKeyCommand(String cmd) {
+        WatchDataStore.WatchDigitalKey key = WatchDataStore.getDigitalKey(this);
+        if (key == null || !key.isValid()) {
+            Toast.makeText(this, "Geçerli dijital anahtar yok!", Toast.LENGTH_SHORT).show();
+            return;
+        }
+
+        Wearable.getNodeClient(this).getConnectedNodes().addOnSuccessListener(nodes -> {
+            if (nodes != null && !nodes.isEmpty()) {
+                byte[] payload = cmd.getBytes(StandardCharsets.UTF_8);
+                for (Node node : nodes) {
+                    Wearable.getMessageClient(this).sendMessage(node.getId(), "/execute_key_action", payload);
+                }
+                String actionName = "lock".equalsIgnoreCase(cmd) ? "🔒 Kilitleme" : "🔓 Açma";
+                Toast.makeText(this, actionName + " telefona iletildi", Toast.LENGTH_SHORT).show();
+            } else {
+                Toast.makeText(this, "Telefon bağlı değil (Bluetooth)", Toast.LENGTH_SHORT).show();
+            }
+        }).addOnFailureListener(e -> {
+            Toast.makeText(this, "Komut iletilemedi: " + e.getMessage(), Toast.LENGTH_SHORT).show();
+        });
     }
 
     private void requestSyncFromPhone() {
@@ -203,6 +306,7 @@ public class MainActivity extends Activity implements WatchDataStore.OnDataChang
                 byte[] payload = "request".getBytes(StandardCharsets.UTF_8);
                 for (Node node : nodes) {
                     Wearable.getMessageClient(this).sendMessage(node.getId(), "/request_telemetry", payload);
+                    Wearable.getMessageClient(this).sendMessage(node.getId(), "/request_digital_key", payload);
                 }
                 Toast.makeText(this, "Telefondan veri isteniyor...", Toast.LENGTH_SHORT).show();
             } else {

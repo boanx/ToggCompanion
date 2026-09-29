@@ -28,6 +28,24 @@
             <meta-data
                 android:name="android.app.shortcuts"
                 android:resource="@xml/shortcuts" />
+
+            <!-- Trumore Digital Key Sharing Deep Links -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="trumore-superapp" android:host="custom" android:pathPrefix="/redirection" />
+                <data android:scheme="togg" android:host="keysharing" />
+                <data android:scheme="https" android:host="trumore.app" android:pathPrefix="/keysharingInvitation" />
+                <data android:scheme="https" android:host="superapp-api.channels.togg.cloud" android:pathPrefix="/keysharingInvitation" />
+            </intent-filter>
+
+            <!-- Trumore Digital Key Share Sheet Receiver (SMS/WhatsApp Text) -->
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="text/plain" />
+            </intent-filter>
         </activity>
 
         <!-- Headless / Action Dispatcher for Samsung Modes & Routines and Deep Links -->
@@ -84,6 +102,8 @@
             <intent-filter>
                 <action android:name="com.google.android.gms.wearable.MESSAGE_RECEIVED" />
                 <data android:scheme="wear" android:host="*" android:pathPrefix="/request_telemetry" />
+                <data android:scheme="wear" android:host="*" android:pathPrefix="/request_digital_key" />
+                <data android:scheme="wear" android:host="*" android:pathPrefix="/execute_key_action" />
             </intent-filter>
         </service>
     </application>

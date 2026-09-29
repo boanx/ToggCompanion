@@ -31,11 +31,14 @@ import java.util.Set;
 import androidx.swiperefreshlayout.widget.SwipeRefreshLayout;
 
 import com.togg.companion.R;
+import com.togg.companion.core.DigitalKey;
+import com.togg.companion.core.DigitalKeyManager;
 import com.togg.companion.core.TrumoreBridge;
 import com.togg.companion.core.VehicleTelemetry;
 import com.togg.companion.data.SecureTokenStorage;
 import com.togg.companion.data.TelemetryDatabaseHelper;
 import com.togg.companion.data.remote.TvaApiClient;
+import com.togg.companion.wearable.WearSyncManager;
 
 public final class MainActivity extends Activity {
 
@@ -112,6 +115,12 @@ public final class MainActivity extends Activity {
     private TextView tvTrunkStatus;
     private Button btnTrunkToggle;
 
+    // Page 5: Dijital Anahtar Views
+    private TextView tvPhoneKeyBadge;
+    private TextView tvPhoneKeyInfo;
+    private Button btnCopyKeyToWatch;
+    private Button btnManageDigitalKey;
+
     // Page 6: Sürüş İstatistikleri
     private TextView tvDriveMode;
     private TextView tvOdometer;
@@ -168,6 +177,7 @@ public final class MainActivity extends Activity {
         refreshTelemetry();
 
         handleActionIntent(getIntent());
+        handleDigitalKeyIntent(getIntent());
     }
 
     @Override
@@ -175,6 +185,13 @@ public final class MainActivity extends Activity {
         super.onNewIntent(intent);
         setIntent(intent);
         handleActionIntent(intent);
+        handleDigitalKeyIntent(intent);
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        renderDigitalKeyCard();
     }
 
     private void bindViews() {
@@ -253,6 +270,10 @@ public final class MainActivity extends Activity {
         btnDoorToggle = findViewById(R.id.btn_door_toggle);
         tvTrunkStatus = findViewById(R.id.tv_trunk_status);
         btnTrunkToggle = findViewById(R.id.btn_trunk_toggle);
+        tvPhoneKeyBadge = findViewById(R.id.tv_phone_key_badge);
+        tvPhoneKeyInfo = findViewById(R.id.tv_phone_key_info);
+        btnCopyKeyToWatch = findViewById(R.id.btn_copy_key_to_watch);
+        btnManageDigitalKey = findViewById(R.id.btn_manage_digital_key);
 
         // Page 6: Sürüş İstatistikleri
         tvDriveMode = findViewById(R.id.tv_drive_mode);
@@ -359,6 +380,24 @@ public final class MainActivity extends Activity {
 
         // Vehicle Controls: Trunk Open/Close with safety confirmation
         btnTrunkToggle.setOnClickListener(v -> confirmAndToggleTrunk());
+
+        // Page 5: Dijital Anahtar Actions
+        if (btnCopyKeyToWatch != null) {
+            btnCopyKeyToWatch.setOnClickListener(v -> {
+                DigitalKeyManager keyMgr = new DigitalKeyManager(this);
+                DigitalKey key = keyMgr.getActiveKey();
+                if (key != null && key.isValid()) {
+                    WearSyncManager.syncDigitalKey(this, key);
+                    Toast.makeText(this, "Dijital anahtar Samsung Galaxy Watch'a aktarılıyor... ⌚", Toast.LENGTH_SHORT).show();
+                } else {
+                    showManageDigitalKeyDialog();
+                }
+            });
+        }
+
+        if (btnManageDigitalKey != null) {
+            btnManageDigitalKey.setOnClickListener(v -> showManageDigitalKeyDialog());
+        }
 
         // Vehicle Controls: Climate Temp Minus / Plus
         btnTempMinus.setOnClickListener(v -> adjustTargetTemperature(-0.5));
@@ -715,6 +754,9 @@ public final class MainActivity extends Activity {
         // 0. Ana Sayfa Kartları (Custom Order)
         renderHomeCards();
 
+        // 5. Dijital Anahtar Kartı (Page 5)
+        renderDigitalKeyCard();
+
         // Sync to Samsung Galaxy Watch (Wear OS)
         com.togg.companion.wearable.WearSyncManager.syncTelemetry(this, t);
     }
@@ -755,6 +797,208 @@ public final class MainActivity extends Activity {
                 case "locate":
                     openNavigationToCar();
                     break;
+            }
+        }
+    }
+
+    public void executeDigitalKeyAction(String action) {
+        DigitalKeyManager keyMgr = new DigitalKeyManager(this);
+        DigitalKey activeKey = keyMgr.getActiveKey();
+        if (activeKey == null || !activeKey.isValid()) {
+            Toast.makeText(this, "Geçerli bir Dijital Anahtar bulunamadı!", Toast.LENGTH_SHORT).show();
+            return;
+        }
+
+        if ("lock".equalsIgnoreCase(action)) {
+            if (!activeKey.canLock) {
+                Toast.makeText(this, "Bu anahtarın kapı kilitleme yetkisi yok!", Toast.LENGTH_SHORT).show();
+                return;
+            }
+            isDoorLocked = true;
+            updateDoorUi();
+            Toast.makeText(this, "🔑 Dijital Anahtar: Kapılar kilitlendi (" + activeKey.seId + ")", Toast.LENGTH_SHORT).show();
+            if (currentTelemetry != null) {
+                currentTelemetry = currentTelemetry.withLock(true);
+                dbHelper.insert(currentTelemetry);
+                renderHomeCards();
+                WearSyncManager.syncTelemetry(this, currentTelemetry);
+            }
+        } else if ("unlock".equalsIgnoreCase(action)) {
+            if (!activeKey.canUnlock) {
+                Toast.makeText(this, "Bu anahtarın kilit açma yetkisi yok!", Toast.LENGTH_SHORT).show();
+                return;
+            }
+            isDoorLocked = false;
+            updateDoorUi();
+            Toast.makeText(this, "🔑 Dijital Anahtar: Kapı kilitleri açıldı (" + activeKey.seId + ")", Toast.LENGTH_SHORT).show();
+            if (currentTelemetry != null) {
+                currentTelemetry = currentTelemetry.withLock(false);
+                dbHelper.insert(currentTelemetry);
+                renderHomeCards();
+                WearSyncManager.syncTelemetry(this, currentTelemetry);
+            }
+        }
+    }
+
+    private void handleDigitalKeyIntent(Intent intent) {
+        if (intent == null) return;
+        String action = intent.getAction();
+        DigitalKey parsedKey = null;
+
+        if (Intent.ACTION_VIEW.equals(action) && intent.getData() != null) {
+            parsedKey = DigitalKeyManager.parseFromUri(intent.getData());
+        } else if (Intent.ACTION_SEND.equals(action) && "text/plain".equals(intent.getType())) {
+            String sharedText = intent.getStringExtra(Intent.EXTRA_TEXT);
+            if (sharedText != null) {
+                parsedKey = DigitalKeyManager.parseFromInput(sharedText);
+            }
+        }
+
+        if (parsedKey != null) {
+            showRegisterDigitalKeyDialog(parsedKey);
+        }
+    }
+
+    private void showRegisterDigitalKeyDialog(DigitalKey key) {
+        if (key == null || isFinishing() || isDestroyed()) return;
+
+        AlertDialog.Builder builder = new AlertDialog.Builder(this);
+        builder.setTitle("🔑 Trumore Dijital Anahtar Paylaşımı");
+
+        String msg = "Trumore uygulamasından yeni bir dijital anahtar paylaşımı algılandı:\n\n"
+                + "• Plaka / Araç: " + key.vehiclePlate + " (" + key.vehicleVin + ")\n"
+                + "• Güvenli Kod (SE-ID): " + key.seId + "\n"
+                + "• Kullanıcı: " + key.recipientName + "\n"
+                + "• Geçerlilik: " + key.getRemainingTimeDisplay() + "\n"
+                + "• Yetkiler: " + key.getPermissionsSummary() + "\n\n"
+                + "Bu anahtarı ToggCompanion'a kaydedip Samsung Galaxy Watch akıllı saatinize kopyalamak istiyor musunuz?";
+        builder.setMessage(msg);
+
+        builder.setPositiveButton("Kaydet & Saate Aktar ⌚", (dialog, which) -> {
+            DigitalKeyManager mgr = new DigitalKeyManager(this);
+            mgr.saveKey(key);
+            WearSyncManager.syncDigitalKey(this, key);
+            renderDigitalKeyCard();
+            renderHomeCards();
+            selectTab(5); // Switch to Security tab
+            Toast.makeText(this, "Dijital anahtar başarıyla kaydedildi ve akıllı saate aktarıldı! ⌚🔑", Toast.LENGTH_LONG).show();
+        });
+
+        builder.setNeutralButton("Sadece Telefona Kaydet", (dialog, which) -> {
+            DigitalKeyManager mgr = new DigitalKeyManager(this);
+            mgr.saveKey(key);
+            renderDigitalKeyCard();
+            renderHomeCards();
+            selectTab(5);
+            Toast.makeText(this, "Dijital anahtar telefona kaydedildi.", Toast.LENGTH_SHORT).show();
+        });
+
+        builder.setNegativeButton("İptal", null);
+        builder.show();
+    }
+
+    private void showManageDigitalKeyDialog() {
+        if (isFinishing() || isDestroyed()) return;
+
+        DigitalKeyManager keyMgr = new DigitalKeyManager(this);
+        DigitalKey currentKey = keyMgr.getActiveKey();
+
+        AlertDialog.Builder builder = new AlertDialog.Builder(this);
+        builder.setTitle("🔑 Trumore Dijital Anahtar Yönetimi");
+
+        LinearLayout layout = new LinearLayout(this);
+        layout.setOrientation(LinearLayout.VERTICAL);
+        layout.setPadding(dpToPx(20), dpToPx(12), dpToPx(20), dpToPx(12));
+
+        if (currentKey != null) {
+            TextView tvCur = new TextView(this);
+            tvCur.setText("Mevcut Kayıtlı Anahtar:\n• SE-ID: " + currentKey.seId + "\n• Plaka: " + currentKey.vehiclePlate + "\n• Süre: " + currentKey.getRemainingTimeDisplay() + "\n• Durum: " + (currentKey.isValid() ? "Aktif ✅" : "Süresi Dolmuş ⚠️"));
+            tvCur.setTextColor(getColor(R.color.text_primary));
+            tvCur.setTextSize(13);
+            tvCur.setPadding(0, 0, 0, dpToPx(10));
+            layout.addView(tvCur);
+        }
+
+        TextView tvPrompt = new TextView(this);
+        tvPrompt.setText("Trumore'dan kopyalanan davet linki, SMS metni veya referans kodu (Örn: SE-8F4219):");
+        tvPrompt.setTextColor(getColor(R.color.text_secondary));
+        tvPrompt.setTextSize(12);
+        layout.addView(tvPrompt);
+
+        final EditText etKeyInput = new EditText(this);
+        etKeyInput.setHint("https://trumore.app/keysharingInvitation?seId=... veya SE-XXXXXX");
+        etKeyInput.setTextSize(14);
+        layout.addView(etKeyInput);
+
+        builder.setView(layout);
+
+        builder.setPositiveButton("Kaydet ve Saate Aktar", (dialog, which) -> {
+            String input = etKeyInput.getText().toString().trim();
+            if (input.isEmpty()) {
+                if (currentKey != null && currentKey.isValid()) {
+                    WearSyncManager.syncDigitalKey(this, currentKey);
+                    Toast.makeText(this, "Mevcut anahtar akıllı saate aktarıldı! ⌚", Toast.LENGTH_SHORT).show();
+                } else {
+                    Toast.makeText(this, "Lütfen bir anahtar bağlantısı veya kodu giriniz.", Toast.LENGTH_SHORT).show();
+                }
+                return;
+            }
+
+            DigitalKey parsed = DigitalKeyManager.parseFromInput(input);
+            if (parsed != null) {
+                keyMgr.saveKey(parsed);
+                WearSyncManager.syncDigitalKey(this, parsed);
+                renderDigitalKeyCard();
+                renderHomeCards();
+                Toast.makeText(this, "Dijital anahtar kaydedildi ve saate kopyalandı! ⌚🔑", Toast.LENGTH_LONG).show();
+            } else {
+                Toast.makeText(this, "Geçersiz anahtar formatı! Trumore bağlantısı veya SE- referans kodu bekleniyor.", Toast.LENGTH_LONG).show();
+            }
+        });
+
+        if (currentKey != null) {
+            builder.setNeutralButton("🗑️ Sil", (dialog, which) -> {
+                keyMgr.removeKey();
+                WearSyncManager.syncDigitalKey(this, null);
+                renderDigitalKeyCard();
+                renderHomeCards();
+                Toast.makeText(this, "Dijital anahtar silindi ve saatten kaldırıldı.", Toast.LENGTH_SHORT).show();
+            });
+        }
+
+        builder.setNegativeButton("Kapat", null);
+        builder.show();
+    }
+
+    private void renderDigitalKeyCard() {
+        DigitalKeyManager keyMgr = new DigitalKeyManager(this);
+        DigitalKey key = keyMgr.getActiveKey();
+
+        if (tvPhoneKeyBadge != null) {
+            if (key != null && key.isValid()) {
+                tvPhoneKeyBadge.setText("AKTİF");
+                tvPhoneKeyBadge.setTextColor(getColor(R.color.status_green));
+            } else if (key != null && !key.isValid()) {
+                tvPhoneKeyBadge.setText("SÜRESİ DOLDU");
+                tvPhoneKeyBadge.setTextColor(getColor(R.color.status_red));
+            } else {
+                tvPhoneKeyBadge.setText("YOK");
+                tvPhoneKeyBadge.setTextColor(getColor(R.color.text_muted));
+            }
+        }
+
+        if (tvPhoneKeyInfo != null) {
+            if (key != null && key.isValid()) {
+                String info = "Araç: " + key.vehiclePlate + " (" + key.vehicleVin + ")\n"
+                        + "SE-ID: " + key.seId + "\n"
+                        + "Kullanıcı: " + key.recipientName + "\n"
+                        + "Kalan Süre: " + key.getRemainingTimeDisplay() + "\n"
+                        + "Yetkiler: " + key.getPermissionsSummary();
+                tvPhoneKeyInfo.setText(info);
+            } else if (key != null && !key.isValid()) {
+                tvPhoneKeyInfo.setText("Kayıtlı dijital anahtarın (" + key.seId + ") geçerlilik süresi dolmuştur.");
+            } else {
+                tvPhoneKeyInfo.setText("Kayıtlı dijital anahtar bulunamadı. Trumore uygulamasından paylaşılan davet bağlantısını açarak veya referans kodu girerek anahtar ekleyebilirsiniz.");
             }
         }
     }
@@ -910,6 +1154,7 @@ public final class MainActivity extends Activity {
     private static final String CARD_LOCATION = "location";
     private static final String CARD_CLIMATE = "climate";
     private static final String CARD_12V = "12v";
+    private static final String CARD_DIGITAL_KEY = "digital_key";
 
     private void renderHomeCards() {
         if (homeCardsContainer == null) return;
@@ -1175,6 +1420,66 @@ public final class MainActivity extends Activity {
                 card.setOnClickListener(v -> selectTab(2));
                 return card;
             }
+            case CARD_DIGITAL_KEY: {
+                TextView title = createCardTitle("🔑 Trumore Dijital Anahtar");
+                title.setTextColor(getColor(R.color.accent_purple));
+                card.addView(title);
+
+                DigitalKeyManager keyMgr = new DigitalKeyManager(this);
+                DigitalKey dKey = keyMgr.getActiveKey();
+
+                TextView tvStatus = new TextView(this);
+                tvStatus.setTextSize(13);
+                tvStatus.setPadding(0, dpToPx(4), 0, dpToPx(8));
+                if (dKey != null && dKey.isValid()) {
+                    tvStatus.setText("Durum: ✅ Aktif (" + dKey.vehiclePlate + " • " + dKey.getRemainingTimeDisplay() + ")");
+                    tvStatus.setTextColor(getColor(R.color.status_green));
+                } else if (dKey != null && !dKey.isValid()) {
+                    tvStatus.setText("Durum: ⚠️ Süresi Doldu");
+                    tvStatus.setTextColor(getColor(R.color.status_red));
+                } else {
+                    tvStatus.setText("Durum: ⚠️ Henüz Anahtar Eklenmedi");
+                    tvStatus.setTextColor(getColor(R.color.text_secondary));
+                }
+                card.addView(tvStatus);
+
+                LinearLayout btnRow = new LinearLayout(this);
+                btnRow.setOrientation(LinearLayout.HORIZONTAL);
+
+                Button btnCopy = new Button(this);
+                btnCopy.setText("⌚ Saate Kopyala");
+                btnCopy.setTextSize(12);
+                btnCopy.setTextColor(getColor(R.color.white));
+                btnCopy.setBackgroundResource(R.drawable.btn_gradient);
+                LinearLayout.LayoutParams p1 = new LinearLayout.LayoutParams(0, dpToPx(38), 1.0f);
+                p1.rightMargin = dpToPx(4);
+                btnCopy.setLayoutParams(p1);
+                btnCopy.setOnClickListener(v -> {
+                    DigitalKey k = new DigitalKeyManager(this).getActiveKey();
+                    if (k != null && k.isValid()) {
+                        WearSyncManager.syncDigitalKey(this, k);
+                        Toast.makeText(this, "Dijital anahtar akıllı saate aktarılıyor... ⌚", Toast.LENGTH_SHORT).show();
+                    } else {
+                        showManageDigitalKeyDialog();
+                    }
+                });
+                btnRow.addView(btnCopy);
+
+                Button btnManage = new Button(this);
+                btnManage.setText("Yönet / Ekle");
+                btnManage.setTextSize(12);
+                btnManage.setTextColor(getColor(R.color.accent_purple));
+                btnManage.setBackgroundResource(R.drawable.btn_outline);
+                LinearLayout.LayoutParams p2 = new LinearLayout.LayoutParams(0, dpToPx(38), 1.0f);
+                p2.leftMargin = dpToPx(4);
+                btnManage.setLayoutParams(p2);
+                btnManage.setOnClickListener(v -> showManageDigitalKeyDialog());
+                btnRow.addView(btnManage);
+
+                card.addView(btnRow);
+                card.setOnClickListener(v -> selectTab(5));
+                return card;
+            }
         }
         return null;
     }
@@ -1216,7 +1521,7 @@ public final class MainActivity extends Activity {
                 items.add(new CardItem(key, name, visibleSet.contains(key)));
             }
         }
-        String[] allKeys = {CARD_BATTERY, CARD_CONTROLS, CARD_DRIVE, CARD_TIRES, CARD_LOCATION, CARD_CLIMATE, CARD_12V};
+        String[] allKeys = {CARD_BATTERY, CARD_CONTROLS, CARD_DRIVE, CARD_TIRES, CARD_LOCATION, CARD_CLIMATE, CARD_12V, CARD_DIGITAL_KEY};
         for (String ak : allKeys) {
             boolean exists = false;
             for (CardItem it : items) {
@@ -1343,6 +1648,7 @@ public final class MainActivity extends Activity {
             case CARD_LOCATION: return "📍 Son Park Yeri & Konum";
             case CARD_CLIMATE: return "❄️ İklimlendirme (HVAC)";
             case CARD_12V: return "🔋 12V Alçak Gerilim Aküsü";
+            case CARD_DIGITAL_KEY: return "🔑 Trumore Dijital Anahtar";
             default: return null;
         }
     }

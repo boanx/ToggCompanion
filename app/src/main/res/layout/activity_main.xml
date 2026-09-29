@@ -1185,6 +1185,86 @@
                             android:textColor="@color/text_primary"
                             android:textSize="12sp" />
                     </LinearLayout>
+
+                    <!-- DİJİTAL ANAHTAR (TRUMORE KEY SHARING & SAAT SENKRONİZASYONU) -->
+                    <LinearLayout
+                        android:id="@+id/card_digital_key"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginBottom="14dp"
+                        android:background="@drawable/card_bg"
+                        android:orientation="vertical"
+                        android:padding="16dp">
+
+                        <LinearLayout
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:gravity="center_vertical"
+                            android:orientation="horizontal">
+
+                            <TextView
+                                android:layout_width="0dp"
+                                android:layout_height="wrap_content"
+                                android:layout_weight="1"
+                                android:text="🔑 Trumore Dijital Anahtar"
+                                android:textColor="@color/accent_purple"
+                                android:textSize="14sp"
+                                android:textStyle="bold" />
+
+                            <TextView
+                                android:id="@+id/tv_phone_key_badge"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:background="@drawable/badge_pill"
+                                android:paddingHorizontal="10dp"
+                                android:paddingVertical="3dp"
+                                android:text="YOK"
+                                android:textColor="@color/text_muted"
+                                android:textSize="11sp"
+                                android:textStyle="bold" />
+                        </LinearLayout>
+
+                        <TextView
+                            android:id="@+id/tv_phone_key_info"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="8dp"
+                            android:text="Kayıtlı dijital anahtar bulunamadı. Trumore uygulamasından paylaşılan davet bağlantısını açarak veya referans kodu girerek anahtar ekleyebilirsiniz."
+                            android:textColor="@color/text_secondary"
+                            android:textSize="12sp" />
+
+                        <LinearLayout
+                            android:id="@+id/layout_phone_key_actions"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="12dp"
+                            android:orientation="horizontal">
+
+                            <Button
+                                android:id="@+id/btn_copy_key_to_watch"
+                                android:layout_width="0dp"
+                                android:layout_height="42dp"
+                                android:layout_marginEnd="4dp"
+                                android:layout_weight="1"
+                                android:background="@drawable/btn_gradient"
+                                android:text="⌚ Saate Kopyala"
+                                android:textColor="@color/white"
+                                android:textSize="12sp"
+                                android:textStyle="bold" />
+
+                            <Button
+                                android:id="@+id/btn_manage_digital_key"
+                                android:layout_width="0dp"
+                                android:layout_height="42dp"
+                                android:layout_marginStart="4dp"
+                                android:layout_weight="1"
+                                android:background="@drawable/btn_outline"
+                                android:text="🔑 Yönet / Ekle"
+                                android:textColor="@color/accent_purple"
+                                android:textSize="12sp"
+                                android:textStyle="bold" />
+                        </LinearLayout>
+                    </LinearLayout>
                 </LinearLayout>
 
                 <!-- ============================================== -->

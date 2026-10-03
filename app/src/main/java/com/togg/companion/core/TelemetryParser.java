@@ -216,8 +216,14 @@ public final class TelemetryParser {
             // 6. Sürüş İstatistikleri
             // Real Togg schema: odometerStatus -> odometerStatusContent -> odometer -> odometerValue
             double odoDouble = findDouble(odoObj, -1.0, "odometerValue", "odometer", "odometerKm", "totalDistance");
+            if (odoObj != null && odoDouble >= 0) {
+                odoDouble /= 1000.0;
+            }
             if (odoDouble < 0) {
                 odoDouble = findDouble(telem, 14280.0, "odometer", "odometerKm", "odometerValue");
+                if (odoDouble >= 50000.0) {
+                    odoDouble /= 1000.0;
+                }
             }
             long odometer = (long) Math.round(odoDouble);
 
@@ -259,8 +265,8 @@ public final class TelemetryParser {
             int parkDur = (int) Math.round(findDouble(locObj, 0.0, "parkDurationMinutes", "parkDuration"));
 
             // Timestamp parsing
-            long timestamp = parseTimestamp(telem != null ? telem.opt("updatedOn") : null,
-                    parseTimestamp(root.opt("timestamp"), System.currentTimeMillis()));
+            long timestamp = findPublishTimestamp(root, data, telem, batteryObj, vehStatusObj, locObj,
+                    tpmsSensorsObj, tripObj, obcObj, driveModeObj);
 
             return new VehicleTelemetry(
                     vin, plate,
@@ -455,23 +461,84 @@ public final class TelemetryParser {
         return null;
     }
 
-    private static long parseTimestamp(Object val, long fallback) {
+    public static long parseTimestamp(Object val, long fallback) {
         if (val == null) return fallback;
-        if (val instanceof Number) return ((Number) val).longValue();
+        if (val instanceof Number) return normalizeEpoch(((Number) val).longValue());
         if (val instanceof String) {
             String s = ((String) val).trim();
             if (s.isEmpty()) return fallback;
             try {
-                return Long.parseLong(s);
+                return normalizeEpoch(Long.parseLong(s));
             } catch (Exception ignored) {}
             try {
-                SimpleDateFormat iso = new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", Locale.US);
-                iso.setTimeZone(TimeZone.getTimeZone("UTC"));
-                Date d = iso.parse(s.replace("Z", ""));
-                if (d != null) return d.getTime();
+                return java.time.Instant.parse(s).toEpochMilli();
             } catch (Exception ignored) {}
+            try {
+                return java.time.OffsetDateTime.parse(s).toInstant().toEpochMilli();
+            } catch (Exception ignored) {}
+            try {
+                return java.time.LocalDateTime.parse(s.replace(" ", "T"))
+                        .atZone(java.time.ZoneId.of("Europe/Istanbul")).toInstant().toEpochMilli();
+            } catch (Exception ignored) {}
+            String[] patterns = {
+                    "d MMMM yyyy - HH:mm", "d MMMM yyyy HH:mm",
+                    "dd MMMM yyyy - HH:mm", "dd MMMM yyyy HH:mm", "d MMMM yyyy",
+                    "dd.MM.yyyy - HH:mm",
+                    "yyyy-MM-dd'T'HH:mm:ss.SSSSSSXXX", "yyyy-MM-dd'T'HH:mm:ss.SSSSSS'Z'",
+                    "yyyy-MM-dd'T'HH:mm:ss.SSSSSS", "yyyy-MM-dd'T'HH:mm:ss.SSSXXX",
+                    "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", "yyyy-MM-dd'T'HH:mm:ss.SSS",
+                    "yyyy-MM-dd'T'HH:mm:ssXXX", "yyyy-MM-dd'T'HH:mm:ss'Z'",
+                    "yyyy-MM-dd'T'HH:mm:ss", "yyyy-MM-dd HH:mm:ss.SSS",
+                    "yyyy-MM-dd HH:mm:ss", "dd.MM.yyyy HH:mm:ss", "dd.MM.yyyy HH:mm"
+            };
+            for (String pattern : patterns) {
+                try {
+                    SimpleDateFormat sdf = new SimpleDateFormat(pattern, new Locale("tr", "TR"));
+                    sdf.setLenient(false);
+                    sdf.setTimeZone(TimeZone.getTimeZone("Europe/Istanbul"));
+                    Date d = sdf.parse(s);
+                    if (d != null) return d.getTime();
+                } catch (Exception ignored) {}
+            }
         }
         return fallback;
+    }
+
+    private static long normalizeEpoch(long value) {
+        return value > 0 && value < 100000000000L ? value * 1000L : value;
+    }
+
+    private static long findPublishTimestamp(JSONObject root, JSONObject data, JSONObject telem, JSONObject battery, JSONObject vehicleStatus,
+                                             JSONObject location, JSONObject tpmsSensors, JSONObject trip,
+                                             JSONObject obc, JSONObject driveMode) {
+        long rootTimestamp = parseTimestamp(data != null ? data.opt("timestamp") : null, -1L);
+        if (rootTimestamp <= 0) rootTimestamp = parseTimestamp(root != null ? root.opt("timestamp") : null, -1L);
+        if (rootTimestamp <= 0) rootTimestamp = parseTimestamp(data != null ? data.opt("dateFormat") : null, -1L);
+        if (rootTimestamp <= 0) {
+            rootTimestamp = parseTimestamp(data != null ? data.opt("producedOn") : null, -1L);
+        }
+        if (rootTimestamp > 0) return rootTimestamp;
+        String[] vehicleKeys = {"producedOn", "lastEventTimeMs", "eventTime", "recordTime", "deviceSyncTime",
+                "smartDeviceSync", "lastConnection", "lastSyncTime", "lastSynchronized"};
+        JSONObject[] sources = {tpmsSensors, trip, obc, driveMode, battery, vehicleStatus, location, telem};
+        for (JSONObject source : sources) {
+            Object value = searchTimestampRecursive(source, vehicleKeys, 0);
+            long parsed = parseTimestamp(value, -1L);
+            if (parsed > 0) return parsed;
+        }
+        return 0L;
+    }
+
+    private static Object searchTimestampRecursive(JSONObject obj, String[] keys, int depth) {
+        if (obj == null || depth > 5) return null;
+        for (String key : keys) if (obj.has(key) && obj.opt(key) != JSONObject.NULL) return obj.opt(key);
+        Iterator<String> it = obj.keys();
+        while (it.hasNext()) {
+            JSONObject child = obj.optJSONObject(it.next());
+            Object found = searchTimestampRecursive(child, keys, depth + 1);
+            if (found != null) return found;
+        }
+        return null;
     }
 
     public static VehicleTelemetry createDemoSnapshot(String vin, String plate) {
@@ -528,7 +595,7 @@ public final class TelemetryParser {
                 39.925054, 32.834755, // Ankara Koordinatları
                 "Aracın konumu belirleniyor...",
                 0,        // Park süresi hesaplanır
-                System.currentTimeMillis(),
+                System.currentTimeMillis() - 75 * 60 * 1000L,
                 new VehicleTelemetry.TripData(38.4, 42, 16.8, 58),
                 new VehicleTelemetry.TripData(85.0, 110, 17.2, 54),
                 new VehicleTelemetry.TripData(14280.0, 14500, 17.8, 56)

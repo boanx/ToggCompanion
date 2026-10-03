@@ -6,6 +6,86 @@ import static org.junit.Assert.*;
 public class TelemetryParserTest {
 
     @Test
+    public void testParseTimestampIsoVariantsAndEpochs() {
+        long expected = java.time.Instant.parse("2026-10-01T10:15:30Z").toEpochMilli();
+        assertEquals(expected, TelemetryParser.parseTimestamp("2026-10-01T10:15:30Z", -1));
+        assertEquals(expected, TelemetryParser.parseTimestamp("2026-10-01T13:15:30+03:00", -1));
+        assertEquals(expected + 123, TelemetryParser.parseTimestamp("2026-10-01T10:15:30.123Z", -1));
+        assertEquals(java.time.LocalDateTime.parse("2026-10-01T10:15:30")
+                .atZone(java.time.ZoneId.of("Europe/Istanbul")).toInstant().toEpochMilli(),
+                TelemetryParser.parseTimestamp("2026-10-01T10:15:30", -1));
+        assertEquals(1727777730000L, TelemetryParser.parseTimestamp(1727777730000L, -1));
+        assertEquals(1727777730000L, TelemetryParser.parseTimestamp("1727777730", -1));
+    }
+
+    @Test
+    public void testVehicleUpdatedOnIsNotSyncTimestamp() {
+        String json = "{\"data\":{\"telemetry\":{\"updatedOn\":\"2026-10-01T10:15:30\",\"batterySoc\":82}}}";
+        VehicleTelemetry telemetry = TelemetryParser.parse(json, "VIN", "PLATE");
+        assertEquals(0L, telemetry.timestampMillis);
+    }
+
+    @Test
+    public void testTurkishVehicleSyncDates() {
+        long expected = java.time.LocalDateTime.of(2026, 9, 30, 15, 50)
+                .atZone(java.time.ZoneId.of("Europe/Istanbul")).toInstant().toEpochMilli();
+        assertEquals(expected, TelemetryParser.parseTimestamp("30 Eylül 2026 - 15:50", -1));
+        assertEquals(expected, TelemetryParser.parseTimestamp("30.09.2026 15:50", -1));
+        assertEquals(expected, TelemetryParser.parse("{\"data\":{\"dateFormat\":\"30 Eylül 2026 - 15:50\",\"telemetry\":{\"updatedOn\":\"2026-10-01T10:15:30Z\"}}}", "VIN", "PLATE").timestampMillis);
+        assertEquals(expected, TelemetryParser.parse("{\"timestamp\":\"30.09.2026 15:50\",\"data\":{\"telemetry\":{}}}", "VIN", "PLATE").timestampMillis);
+    }
+
+    @Test
+    public void testComponentProducedOnAndLocalStateChangesKeepVehicleSync() {
+        String json = "{\"data\":{\"telemetry\":{\"updatedOn\":\"2026-10-01T12:00:00Z\","
+                + "\"battery\":{\"producedOn\":\"2026-09-30T12:50:00Z\"}}}}";
+        VehicleTelemetry telemetry = TelemetryParser.parse(json, "VIN", "PLATE");
+        long expected = java.time.Instant.parse("2026-09-30T12:50:00Z").toEpochMilli();
+        assertEquals(expected, telemetry.timestampMillis);
+        assertEquals(expected, telemetry.withLock(false).withTrunk(true).withReadyToDrive(true).timestampMillis);
+    }
+
+    @Test
+    public void testProducedOnPrioritizedOverUpdatedOn() {
+        String json = "{\"data\":{\"telemetry\":{" +
+                "\"updatedOn\":\"2026-10-01T10:15:30Z\"," +
+                "\"tirePressureSensors\":{\"producedOn\":\"2026-10-01T09:00:00Z\"}," +
+                "\"batterySoc\":82}}}";
+        VehicleTelemetry telemetry = TelemetryParser.parse(json, "VIN", "PLATE");
+        assertEquals(java.time.Instant.parse("2026-10-01T09:00:00Z").toEpochMilli(), telemetry.timestampMillis);
+    }
+
+    @Test
+    public void testRootVehicleTimestampIsParsed() {
+        String json = "{\"data\":{\"timestamp\":\"2026-10-01T10:15:30Z\",\"telemetry\":{\"batterySoc\":82}}}";
+        VehicleTelemetry telemetry = TelemetryParser.parse(json, "VIN", "PLATE");
+        assertEquals(java.time.Instant.parse("2026-10-01T10:15:30Z").toEpochMilli(), telemetry.timestampMillis);
+    }
+
+    @Test
+    public void testRootVehicleTimestampPrecedesSensorTimestamp() {
+        String json = "{\"data\":{\"timestamp\":\"2026-10-01T10:15:30Z\",\"telemetry\":{" +
+                "\"updatedOn\":\"2026-10-01T11:00:00Z\",\"tirePressureSensors\":{\"producedOn\":\"2026-10-01T09:00:00Z\"}}}}";
+        VehicleTelemetry telemetry = TelemetryParser.parse(json, "VIN", "PLATE");
+        assertEquals(java.time.Instant.parse("2026-10-01T10:15:30Z").toEpochMilli(), telemetry.timestampMillis);
+    }
+
+    @Test
+    public void testRealToggOdometerMetersConvertedToKilometers() {
+        String json = "{\"data\":{\"telemetry\":{\"odometerStatus\":{" +
+                "\"odometerStatusContent\":{\"odometer\":{\"odometerValue\":536384}}}}}}";
+        VehicleTelemetry telemetry = TelemetryParser.parse(json, "VIN", "PLATE");
+        assertEquals(536L, telemetry.odometerKm);
+        assertEquals(536.384, telemetry.myTrip.distanceKm, 0.001);
+    }
+
+    @Test
+    public void testMissingVehicleTimestampIsNotInvented() {
+        VehicleTelemetry telemetry = TelemetryParser.parse("{\"data\":{\"telemetry\":{\"batterySoc\":82}}}", "VIN", "PLATE");
+        assertEquals(0L, telemetry.timestampMillis);
+    }
+
+    @Test
     public void testDefaultDemoSnapshot() {
         VehicleTelemetry t = TelemetryParser.createDemoSnapshot("T10F-001", "34 TOGG 10");
         assertNotNull(t);

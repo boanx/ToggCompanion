@@ -52,7 +52,7 @@ public final class TvaApiClient {
                 return;
             }
 
-            executeFetch(callback, true, STRATEGY_PRIMARY_VIN);
+            executeFetch(callback, true, storage.getOwnerId().isEmpty() ? STRATEGY_PRIMARY_VIN : STRATEGY_FRIEND_VIN);
         }).start();
     }
 
@@ -66,6 +66,10 @@ public final class TvaApiClient {
             String requestUrl;
             if (strategy == STRATEGY_FRIEND_VIN) {
                 requestUrl = baseEndpoint.replace("/VehicleInfo", "/FriendVehicleInfo");
+                String ownerId = storage.getOwnerId() != null ? storage.getOwnerId().trim() : "";
+                if (!ownerId.isEmpty()) {
+                    requestUrl += (requestUrl.contains("?") ? "&" : "?") + "ownerId=" + ownerId;
+                }
             } else {
                 requestUrl = baseEndpoint;
             }
@@ -102,7 +106,9 @@ public final class TvaApiClient {
                 if (parsed.vin != null && !parsed.vin.isEmpty() && !parsed.vin.equalsIgnoreCase("NL1CFB0P800100522")) {
                     storage.setVin(parsed.vin);
                 }
-                storage.setLastSync(System.currentTimeMillis());
+                if (parsed.timestampMillis > 0) {
+                    storage.setLastSync(parsed.timestampMillis);
+                }
                 callback.onSuccess(parsed, true);
                 return;
             }
@@ -116,7 +122,7 @@ public final class TvaApiClient {
                     || errorLower.contains("don't have permission");
 
             // If it's a 401 due to vehicle access permission, do NOT loop token refresh!
-            if (code == 401 && isPermissionError) {
+            if (code == 401 && isPermissionError && !storage.getOwnerId().isEmpty()) {
                 // If primary endpoint denied, try FriendVehicleInfo before giving up
                 if (strategy == STRATEGY_PRIMARY_VIN) {
                     executeFetch(callback, allowTokenRefresh, STRATEGY_FRIEND_VIN);
@@ -153,14 +159,18 @@ public final class TvaApiClient {
             }
 
             // Try FriendVehicleInfo on 404
-            if (code == 404 && strategy == STRATEGY_PRIMARY_VIN) {
+            if (code == 404 && strategy == STRATEGY_PRIMARY_VIN && !storage.getOwnerId().isEmpty()) {
                 executeFetch(callback, allowTokenRefresh, STRATEGY_FRIEND_VIN);
                 return;
             }
 
             // Other errors
             String msg;
-            if (code == 401) {
+            if (code == 404) {
+                msg = "Araç Bulunamadı (HTTP 404): '" + vin + "' şasi numaralı araç hesabınızda birincil araç olarak kayıtlı görünmüyor.\n\n"
+                        + "• Kendi aracınız ise: Ayarlar menüsünden 17 haneli şasi numaranızı (VIN) kontrol ediniz.\n"
+                        + "• Başkası tarafından sizinle paylaşılan bir araç ise: Ayarlar menüsünden 'Araç Sahibi Kimliği (Owner ID)' bilgisini giriniz.";
+            } else if (code == 401) {
                 msg = "Oturum Süresi Doldu (HTTP 401): Togg ID oturumunuz doğrulanamadı. Lütfen 'Togg ID ile Giriş Yap' butonuna basarak yeniden bağlanın.";
                 if (!errorDetail.isEmpty() && errorDetail.length() < 200) {
                     msg += " (" + errorDetail + ")";
@@ -201,4 +211,3 @@ public final class TvaApiClient {
         return sb.toString();
     }
 }
-

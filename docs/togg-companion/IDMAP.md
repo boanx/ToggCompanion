@@ -48,6 +48,21 @@ Implemented native Android companion phone application (`app/`) and Wear OS Gala
 - `F40` = `app/src/main/java/com/togg/companion/core/DigitalKey.java`
 - `F41` = `app/src/main/java/com/togg/companion/core/DigitalKeyManager.java`
 - `F42` = `app/src/test/java/com/togg/companion/core/DigitalKeyTest.java`
+- `F43` = `app/src/main/res/drawable/car_t10f_kula.jpg`
+- `F44` = `app/src/main/res/drawable/glow_headlights.xml`
+- `F45` = `app/src/main/res/drawable/bg_map_frame.xml`
+- `F46` = `app/src/main/java/com/togg/companion/widget/ToggAppWidgetProvider.java`
+- `F47` = `app/src/main/res/layout/widget_togg.xml`
+- `F48` = `app/src/main/res/xml/widget_togg_info.xml`
+- `F49` = `app/src/main/res/drawable/bg_glass_widget.xml`
+- `F50` = `app/src/main/java/com/togg/companion/core/VehicleBleManager.java`
+- `F51` = `app/src/main/res/xml/network_security_config.xml`
+- `F52` = `app/proguard-rules.pro`
+- `F53` = `app/src/main/res/drawable/btn_action_circle.xml`
+- `F54` = `app/src/main/res/drawable/btn_action_circle_active.xml`
+- `F55` = `app/src/main/res/drawable/tire_subcard_bg.xml`
+- `F56` = `app/src/main/res/drawable/tire_subcard_low.xml`
+- `F57` = `app/src/main/res/values-night/`
 
 ## Entity IDs
 
@@ -69,6 +84,9 @@ Implemented native Android companion phone application (`app/`) and Wear OS Gala
 - `T2` = Knowledge Base validation script
 - `T3` = Digital Key unit tests
 - `D0` = Android layout, color, and string XML resources
+- `U6` = Resizable Android home screen vehicle telemetry widget
+- `U7` = Home dashboard trip card, odometer, and dual update timestamp UI
+- `C7` = Vehicle BLE connection and command feedback boundary
 
 ## Predicate vocabulary
 

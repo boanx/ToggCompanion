@@ -57,6 +57,8 @@ public final class VehicleTelemetry implements Serializable {
     public final boolean windowsOpen;
     public final boolean chargePortOpen;
     public final boolean samConnected;
+    public final boolean headlightsOn;
+    public final boolean isReadyToDrive;
 
     // 6. Sürüş İstatistikleri
     public final long odometerKm;
@@ -147,7 +149,34 @@ public final class VehicleTelemetry implements Serializable {
             long timestampMillis,
             TripData currentTrip,
             TripData lastChargeTrip,
-            TripData myTrip) {
+            TripData myTrip,
+            boolean headlightsOn) {
+        this(vin, plate, batterySocPercent, estimatedRangeKm, isCharging, chargePowerKw, chargeMode,
+                chargeRemainingMinutes, targetChargeLimitPercent, batteryTotalCapacityKwh, lastChargeEnergyKwh,
+                lowVoltage12vPercent, lowVoltage12vVolts, tirePressureFL, tireTempFL, tirePressureFR, tireTempFR,
+                tirePressureRL, tireTempRL, tirePressureRR, tireTempRR, tpmsSensorOk, cabinTempCelsius,
+                targetHvacCelsius, outdoorTempCelsius, isClimateActive, isDefrostActive, seatHeaterDriver,
+                seatHeaterPassenger, steeringHeaterActive, isLocked, doorOpenFL, doorOpenFR, doorOpenRL,
+                doorOpenRR, trunkOpen, frunkOpen, windowsOpen, chargePortOpen, samConnected, odometerKm,
+                driveMode, lastTripDistanceKm, lastTripDurationMin, lastTripAvgConsumption, lastTripAvgSpeed,
+                latitude, longitude, parkAddress, parkDurationMinutes, timestampMillis, currentTrip,
+                lastChargeTrip, myTrip, headlightsOn, false);
+    }
+
+    public VehicleTelemetry(String vin, String plate, int batterySocPercent, int estimatedRangeKm,
+            boolean isCharging, double chargePowerKw, String chargeMode, int chargeRemainingMinutes,
+            int targetChargeLimitPercent, double batteryTotalCapacityKwh, double lastChargeEnergyKwh,
+            int lowVoltage12vPercent, double lowVoltage12vVolts, double tirePressureFL, int tireTempFL,
+            double tirePressureFR, int tireTempFR, double tirePressureRL, int tireTempRL,
+            double tirePressureRR, int tireTempRR, boolean tpmsSensorOk, double cabinTempCelsius,
+            double targetHvacCelsius, double outdoorTempCelsius, boolean isClimateActive,
+            boolean isDefrostActive, int seatHeaterDriver, int seatHeaterPassenger, boolean steeringHeaterActive,
+            boolean isLocked, boolean doorOpenFL, boolean doorOpenFR, boolean doorOpenRL, boolean doorOpenRR,
+            boolean trunkOpen, boolean frunkOpen, boolean windowsOpen, boolean chargePortOpen, boolean samConnected,
+            long odometerKm, String driveMode, double lastTripDistanceKm, int lastTripDurationMin,
+            double lastTripAvgConsumption, int lastTripAvgSpeed, double latitude, double longitude,
+            String parkAddress, int parkDurationMinutes, long timestampMillis, TripData currentTrip,
+            TripData lastChargeTrip, TripData myTrip, boolean headlightsOn, boolean isReadyToDrive) {
         this.vin = vin != null ? vin : "T10F-DEV-001";
         this.plate = plate != null ? plate : "34 TOGG 10";
         this.batterySocPercent = Math.max(0, Math.min(100, batterySocPercent));
@@ -188,6 +217,8 @@ public final class VehicleTelemetry implements Serializable {
         this.windowsOpen = windowsOpen;
         this.chargePortOpen = chargePortOpen;
         this.samConnected = samConnected;
+        this.headlightsOn = headlightsOn;
+        this.isReadyToDrive = isReadyToDrive;
         this.odometerKm = Math.max(0, odometerKm);
         this.driveMode = driveMode != null ? driveMode : "Comfort";
         this.lastTripDistanceKm = Math.max(0.0, lastTripDistanceKm);
@@ -198,7 +229,7 @@ public final class VehicleTelemetry implements Serializable {
         this.longitude = longitude;
         this.parkAddress = parkAddress != null ? parkAddress : "Aracın konumu belirleniyor...";
         this.parkDurationMinutes = Math.max(0, parkDurationMinutes);
-        this.timestampMillis = timestampMillis > 0 ? timestampMillis : System.currentTimeMillis();
+        this.timestampMillis = timestampMillis;
 
         this.currentTrip = currentTrip != null ? currentTrip :
                 new TripData(this.lastTripDistanceKm, this.lastTripDurationMin, this.lastTripAvgConsumption, this.lastTripAvgSpeed);
@@ -206,6 +237,78 @@ public final class VehicleTelemetry implements Serializable {
                 new TripData(85.0, 110, 17.2, 54);
         this.myTrip = myTrip != null ? myTrip :
                 new TripData(this.odometerKm, 14500, 17.8, 56);
+    }
+
+    public VehicleTelemetry(
+            String vin,
+            String plate,
+            int batterySocPercent,
+            int estimatedRangeKm,
+            boolean isCharging,
+            double chargePowerKw,
+            String chargeMode,
+            int chargeRemainingMinutes,
+            int targetChargeLimitPercent,
+            double batteryTotalCapacityKwh,
+            double lastChargeEnergyKwh,
+            int lowVoltage12vPercent,
+            double lowVoltage12vVolts,
+            double tirePressureFL,
+            int tireTempFL,
+            double tirePressureFR,
+            int tireTempFR,
+            double tirePressureRL,
+            int tireTempRL,
+            double tirePressureRR,
+            int tireTempRR,
+            boolean tpmsSensorOk,
+            double cabinTempCelsius,
+            double targetHvacCelsius,
+            double outdoorTempCelsius,
+            boolean isClimateActive,
+            boolean isDefrostActive,
+            int seatHeaterDriver,
+            int seatHeaterPassenger,
+            boolean steeringHeaterActive,
+            boolean isLocked,
+            boolean doorOpenFL,
+            boolean doorOpenFR,
+            boolean doorOpenRL,
+            boolean doorOpenRR,
+            boolean trunkOpen,
+            boolean frunkOpen,
+            boolean windowsOpen,
+            boolean chargePortOpen,
+            boolean samConnected,
+            long odometerKm,
+            String driveMode,
+            double lastTripDistanceKm,
+            int lastTripDurationMin,
+            double lastTripAvgConsumption,
+            int lastTripAvgSpeed,
+            double latitude,
+            double longitude,
+            String parkAddress,
+            int parkDurationMinutes,
+            long timestampMillis,
+            TripData currentTrip,
+            TripData lastChargeTrip,
+            TripData myTrip) {
+        this(
+                vin, plate, batterySocPercent, estimatedRangeKm, isCharging, chargePowerKw,
+                chargeMode, chargeRemainingMinutes, targetChargeLimitPercent, batteryTotalCapacityKwh,
+                lastChargeEnergyKwh, lowVoltage12vPercent, lowVoltage12vVolts,
+                tirePressureFL, tireTempFL, tirePressureFR, tireTempFR,
+                tirePressureRL, tireTempRL, tirePressureRR, tireTempRR,
+                tpmsSensorOk, cabinTempCelsius, targetHvacCelsius, outdoorTempCelsius,
+                isClimateActive, isDefrostActive, seatHeaterDriver, seatHeaterPassenger,
+                steeringHeaterActive, isLocked, doorOpenFL, doorOpenFR, doorOpenRL,
+                doorOpenRR, trunkOpen, frunkOpen, windowsOpen, chargePortOpen,
+                samConnected, odometerKm, driveMode, lastTripDistanceKm,
+                lastTripDurationMin, lastTripAvgConsumption, lastTripAvgSpeed,
+                latitude, longitude, parkAddress, parkDurationMinutes,
+                timestampMillis, currentTrip, lastChargeTrip, myTrip, false
+        );
     }
 
     public VehicleTelemetry(
@@ -273,12 +376,72 @@ public final class VehicleTelemetry implements Serializable {
                 samConnected, odometerKm, driveMode, lastTripDistanceKm,
                 lastTripDurationMin, lastTripAvgConsumption, lastTripAvgSpeed,
                 latitude, longitude, parkAddress, parkDurationMinutes,
-                timestampMillis, null, null, null
+                timestampMillis, null, null, null, false
         );
     }
 
     /**
-     * Backwards-compatible constructor for SQLite caching and legacy calls.
+     * SQLite persistence constructor supporting all columns including location & controls.
+     */
+    public VehicleTelemetry(
+            String vin,
+            String plate,
+            int batterySocPercent,
+            int estimatedRangeKm,
+            boolean isCharging,
+            double chargePowerKw,
+            int lowVoltage12vPercent,
+            double cabinTempCelsius,
+            double targetHvacCelsius,
+            double outdoorTempCelsius,
+            double tirePressureFL,
+            int tireTempFL,
+            double tirePressureFR,
+            int tireTempFR,
+            double tirePressureRL,
+            int tireTempRL,
+            double tirePressureRR,
+            int tireTempRR,
+            long odometerKm,
+            boolean isLocked,
+            double latitude,
+            double longitude,
+            String parkAddress,
+            boolean trunkOpen,
+            String driveMode,
+            boolean headlightsOn,
+            long timestampMillis) {
+        this(vin, plate, batterySocPercent, estimatedRangeKm, isCharging, chargePowerKw, lowVoltage12vPercent,
+                cabinTempCelsius, targetHvacCelsius, outdoorTempCelsius, tirePressureFL, tireTempFL,
+                tirePressureFR, tireTempFR, tirePressureRL, tireTempRL, tirePressureRR, tireTempRR,
+                odometerKm, isLocked, latitude, longitude, parkAddress, trunkOpen, driveMode, headlightsOn,
+                false, timestampMillis);
+    }
+
+    public VehicleTelemetry(String vin, String plate, int batterySocPercent, int estimatedRangeKm,
+            boolean isCharging, double chargePowerKw, int lowVoltage12vPercent, double cabinTempCelsius,
+            double targetHvacCelsius, double outdoorTempCelsius, double tirePressureFL, int tireTempFL,
+            double tirePressureFR, int tireTempFR, double tirePressureRL, int tireTempRL,
+            double tirePressureRR, int tireTempRR, long odometerKm, boolean isLocked, double latitude,
+            double longitude, String parkAddress, boolean trunkOpen, String driveMode, boolean headlightsOn,
+            boolean isReadyToDrive, long timestampMillis) {
+        this(
+                vin, plate, batterySocPercent, estimatedRangeKm, isCharging, chargePowerKw,
+                isCharging ? "AC Şarj (11 kW)" : "Bağlı Değil", 0, 80, 88.5, 0.0,
+                lowVoltage12vPercent, 13.2,
+                tirePressureFL, tireTempFL, tirePressureFR, tireTempFR,
+                tirePressureRL, tireTempRL, tirePressureRR, tireTempRR, true,
+                cabinTempCelsius, targetHvacCelsius, outdoorTempCelsius, false, false,
+                0, 0, false,
+                isLocked, false, false, false, false, trunkOpen, false, false, false, true,
+                odometerKm, driveMode != null ? driveMode : "Comfort", 0.0, 0, 0.0, 0,
+                latitude, longitude, parkAddress != null ? parkAddress : "Aracın konumu belirleniyor...", 0,
+                timestampMillis, null, null, null, headlightsOn, isReadyToDrive
+        );
+    }
+
+    /**
+     * Backwards-compatible constructor for legacy tests and calls.
      */
     public VehicleTelemetry(
             String vin,
@@ -304,16 +467,11 @@ public final class VehicleTelemetry implements Serializable {
             long timestampMillis) {
         this(
                 vin, plate, batterySocPercent, estimatedRangeKm, isCharging, chargePowerKw,
-                isCharging ? "AC Şarj (11 kW)" : "Bağlı Değil", 0, 80, 88.5, 0.0,
-                lowVoltage12vPercent, 13.2,
+                lowVoltage12vPercent, cabinTempCelsius, targetHvacCelsius, outdoorTempCelsius,
                 tirePressureFL, tireTempFL, tirePressureFR, tireTempFR,
-                tirePressureRL, tireTempRL, tirePressureRR, tireTempRR, true,
-                cabinTempCelsius, targetHvacCelsius, outdoorTempCelsius, false, false,
-                0, 0, false,
-                isLocked, false, false, false, false, false, false, false, false, true,
-                odometerKm, "Comfort", 0.0, 0, 0.0, 0,
-                39.925054, 32.834755, "Aracın konumu belirleniyor...", 0,
-                timestampMillis, null, null, null
+                tirePressureRL, tireTempRL, tirePressureRR, tireTempRR,
+                odometerKm, isLocked, 0.0, 0.0, "Aracın konumu belirleniyor...", false, "Comfort", false,
+                timestampMillis
         );
     }
 
@@ -332,7 +490,28 @@ public final class VehicleTelemetry implements Serializable {
                 this.samConnected, this.odometerKm, this.driveMode, this.lastTripDistanceKm,
                 this.lastTripDurationMin, this.lastTripAvgConsumption, this.lastTripAvgSpeed,
                 this.latitude, this.longitude, this.parkAddress, this.parkDurationMinutes,
-                System.currentTimeMillis(), this.currentTrip, this.lastChargeTrip, this.myTrip
+                this.timestampMillis, this.currentTrip, this.lastChargeTrip, this.myTrip,
+                this.headlightsOn, this.isReadyToDrive
+        );
+    }
+
+    public VehicleTelemetry withDriveMode(String driveMode) {
+        return new VehicleTelemetry(
+                this.vin, this.plate, this.batterySocPercent, this.estimatedRangeKm,
+                this.isCharging, this.chargePowerKw, this.chargeMode, this.chargeRemainingMinutes,
+                this.targetChargeLimitPercent, this.batteryTotalCapacityKwh, this.lastChargeEnergyKwh,
+                this.lowVoltage12vPercent, this.lowVoltage12vVolts,
+                this.tirePressureFL, this.tireTempFL, this.tirePressureFR, this.tireTempFR,
+                this.tirePressureRL, this.tireTempRL, this.tirePressureRR, this.tireTempRR,
+                this.tpmsSensorOk, this.cabinTempCelsius, this.targetHvacCelsius, this.outdoorTempCelsius,
+                this.isClimateActive, this.isDefrostActive, this.seatHeaterDriver, this.seatHeaterPassenger,
+                this.steeringHeaterActive, this.isLocked, this.doorOpenFL, this.doorOpenFR, this.doorOpenRL,
+                this.doorOpenRR, this.trunkOpen, this.frunkOpen, this.windowsOpen, this.chargePortOpen,
+                this.samConnected, this.odometerKm, driveMode, this.lastTripDistanceKm,
+                this.lastTripDurationMin, this.lastTripAvgConsumption, this.lastTripAvgSpeed,
+                this.latitude, this.longitude, this.parkAddress, this.parkDurationMinutes,
+                this.timestampMillis, this.currentTrip, this.lastChargeTrip, this.myTrip,
+                this.headlightsOn, this.isReadyToDrive
         );
     }
 
@@ -351,7 +530,8 @@ public final class VehicleTelemetry implements Serializable {
                 this.samConnected, this.odometerKm, this.driveMode, this.lastTripDistanceKm,
                 this.lastTripDurationMin, this.lastTripAvgConsumption, this.lastTripAvgSpeed,
                 this.latitude, this.longitude, this.parkAddress, this.parkDurationMinutes,
-                System.currentTimeMillis(), this.currentTrip, this.lastChargeTrip, this.myTrip
+                this.timestampMillis, this.currentTrip, this.lastChargeTrip, this.myTrip,
+                this.headlightsOn, this.isReadyToDrive
         );
     }
 
@@ -370,8 +550,62 @@ public final class VehicleTelemetry implements Serializable {
                 this.samConnected, this.odometerKm, this.driveMode, this.lastTripDistanceKm,
                 this.lastTripDurationMin, this.lastTripAvgConsumption, this.lastTripAvgSpeed,
                 this.latitude, this.longitude, this.parkAddress, this.parkDurationMinutes,
-                System.currentTimeMillis(), this.currentTrip, this.lastChargeTrip, this.myTrip
+                this.timestampMillis, this.currentTrip, this.lastChargeTrip, this.myTrip,
+                this.headlightsOn, this.isReadyToDrive
         );
+    }
+
+    public VehicleTelemetry withHeadlights(boolean headlights) {
+        return new VehicleTelemetry(
+                this.vin, this.plate, this.batterySocPercent, this.estimatedRangeKm,
+                this.isCharging, this.chargePowerKw, this.chargeMode, this.chargeRemainingMinutes,
+                this.targetChargeLimitPercent, this.batteryTotalCapacityKwh, this.lastChargeEnergyKwh,
+                this.lowVoltage12vPercent, this.lowVoltage12vVolts,
+                this.tirePressureFL, this.tireTempFL, this.tirePressureFR, this.tireTempFR,
+                this.tirePressureRL, this.tireTempRL, this.tirePressureRR, this.tireTempRR,
+                this.tpmsSensorOk, this.cabinTempCelsius, this.targetHvacCelsius, this.outdoorTempCelsius,
+                this.isClimateActive, this.isDefrostActive, this.seatHeaterDriver, this.seatHeaterPassenger,
+                this.steeringHeaterActive, this.isLocked, this.doorOpenFL, this.doorOpenFR, this.doorOpenRL,
+                this.doorOpenRR, this.trunkOpen, this.frunkOpen, this.windowsOpen, this.chargePortOpen,
+                this.samConnected, this.odometerKm, this.driveMode, this.lastTripDistanceKm,
+                this.lastTripDurationMin, this.lastTripAvgConsumption, this.lastTripAvgSpeed,
+                this.latitude, this.longitude, this.parkAddress, this.parkDurationMinutes,
+                this.timestampMillis, this.currentTrip, this.lastChargeTrip, this.myTrip,
+                headlights, this.isReadyToDrive
+        );
+    }
+
+    public VehicleTelemetry withLocation(double lat, double lon, String address) {
+        return new VehicleTelemetry(
+                this.vin, this.plate, this.batterySocPercent, this.estimatedRangeKm,
+                this.isCharging, this.chargePowerKw, this.chargeMode, this.chargeRemainingMinutes,
+                this.targetChargeLimitPercent, this.batteryTotalCapacityKwh, this.lastChargeEnergyKwh,
+                this.lowVoltage12vPercent, this.lowVoltage12vVolts,
+                this.tirePressureFL, this.tireTempFL, this.tirePressureFR, this.tireTempFR,
+                this.tirePressureRL, this.tireTempRL, this.tirePressureRR, this.tireTempRR,
+                this.tpmsSensorOk, this.cabinTempCelsius, this.targetHvacCelsius, this.outdoorTempCelsius,
+                this.isClimateActive, this.isDefrostActive, this.seatHeaterDriver, this.seatHeaterPassenger,
+                this.steeringHeaterActive, this.isLocked, this.doorOpenFL, this.doorOpenFR, this.doorOpenRL,
+                this.doorOpenRR, this.trunkOpen, this.frunkOpen, this.windowsOpen, this.chargePortOpen,
+                this.samConnected, this.odometerKm, this.driveMode, this.lastTripDistanceKm,
+                this.lastTripDurationMin, this.lastTripAvgConsumption, this.lastTripAvgSpeed,
+                lat, lon, address != null ? address : this.parkAddress, this.parkDurationMinutes,
+                this.timestampMillis, this.currentTrip, this.lastChargeTrip, this.myTrip,
+                this.headlightsOn, this.isReadyToDrive
+        );
+    }
+
+    public VehicleTelemetry withReadyToDrive(boolean ready) {
+        return new VehicleTelemetry(vin, plate, batterySocPercent, estimatedRangeKm, isCharging, chargePowerKw,
+                chargeMode, chargeRemainingMinutes, targetChargeLimitPercent, batteryTotalCapacityKwh,
+                lastChargeEnergyKwh, lowVoltage12vPercent, lowVoltage12vVolts, tirePressureFL, tireTempFL,
+                tirePressureFR, tireTempFR, tirePressureRL, tireTempRL, tirePressureRR, tireTempRR,
+                tpmsSensorOk, cabinTempCelsius, targetHvacCelsius, outdoorTempCelsius, isClimateActive,
+                isDefrostActive, seatHeaterDriver, seatHeaterPassenger, steeringHeaterActive, isLocked,
+                doorOpenFL, doorOpenFR, doorOpenRL, doorOpenRR, trunkOpen, frunkOpen, windowsOpen,
+                chargePortOpen, samConnected, odometerKm, driveMode, lastTripDistanceKm, lastTripDurationMin,
+                lastTripAvgConsumption, lastTripAvgSpeed, latitude, longitude, parkAddress, parkDurationMinutes,
+                timestampMillis, currentTrip, lastChargeTrip, myTrip, headlightsOn, ready);
     }
 
     public boolean is12vBatteryLow() {

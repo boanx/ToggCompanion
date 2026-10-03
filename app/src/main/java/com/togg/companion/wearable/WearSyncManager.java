@@ -135,6 +135,7 @@ public final class WearSyncManager {
                 putDataMapReq.getDataMap().putInt(KEY_SOC, telemetry.batterySocPercent);
                 putDataMapReq.getDataMap().putInt(KEY_RANGE_KM, telemetry.estimatedRangeKm);
                 putDataMapReq.getDataMap().putBoolean(KEY_IS_CHARGING, telemetry.isCharging);
+                putDataMapReq.getDataMap().putBoolean("is_ready_to_drive", telemetry.isReadyToDrive);
                 putDataMapReq.getDataMap().putDouble(KEY_CHARGE_POWER_KW, telemetry.chargePowerKw);
                 putDataMapReq.getDataMap().putInt(KEY_BATT_12V_SOC, telemetry.lowVoltage12vPercent);
                 putDataMapReq.getDataMap().putBoolean(KEY_BATT_12V_ALERT, telemetry.is12vBatteryLow());
@@ -158,8 +159,8 @@ public final class WearSyncManager {
                 Wearable.getNodeClient(context).getConnectedNodes().addOnSuccessListener(nodes -> {
                     if (nodes != null) {
                         String payload = String.format(Locale.US,
-                                "{\"soc\":%d,\"range\":%d,\"chg\":%b,\"b12\":%d,\"tire\":%b,\"lat\":%f,\"lon\":%f,\"ts\":%d}",
-                                telemetry.batterySocPercent, telemetry.estimatedRangeKm, telemetry.isCharging,
+                                "{\"soc\":%d,\"range\":%d,\"chg\":%b,\"ready\":%b,\"b12\":%d,\"tire\":%b,\"lat\":%f,\"lon\":%f,\"ts\":%d}",
+                                telemetry.batterySocPercent, telemetry.estimatedRangeKm, telemetry.isCharging, telemetry.isReadyToDrive,
                                 telemetry.lowVoltage12vPercent, !isAnyLow, telemetry.latitude, telemetry.longitude,
                                 telemetry.timestampMillis);
                         byte[] bytes = payload.getBytes(StandardCharsets.UTF_8);

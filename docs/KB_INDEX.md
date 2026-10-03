@@ -24,7 +24,7 @@ Always read this file before loading any feature KB.
 
 ### togg-companion — `docs/togg-companion/`
 
-- Use for: Togg T10F phone companion (`app/`) and Samsung Galaxy Watch Wear OS app (`wear/`). Covers vehicle telemetry parsing, secure token storage, SQLite caching, Trumore/TVA API client, headless actions & deep links, Wear OS Tile provider, Wearable Data Layer sync, and UI screens.
+- Use for: Togg T10F phone companion (`app/`) and Samsung Galaxy Watch Wear OS app (`wear/`). Covers vehicle telemetry parsing, vehicle BLE connection and command gating, secure token storage, SQLite caching, Trumore/TVA API client, headless actions & deep links, Wear OS Tile provider, Wearable Data Layer sync, and UI screens.
 - Primary KB: `docs/togg-companion`; read `IDMAP.md`, then `KG.adj`, then matching `FACTS.jsonl` records.
 - Secondary folders: none; this project currently has one consolidated feature ecosystem.
 - Bridge files: none. Phone and watch components communicate over the Wearable Data Layer protocol documented in this KB.

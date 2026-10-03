@@ -75,7 +75,7 @@ public final class ToggLoginActivity extends Activity {
 
         CookieManager cookieManager = CookieManager.getInstance();
         cookieManager.setAcceptCookie(true);
-        cookieManager.setAcceptThirdPartyCookies(webView, true);
+        cookieManager.setAcceptThirdPartyCookies(webView, false);
 
         webView.setWebViewClient(new WebViewClient() {
             @Override

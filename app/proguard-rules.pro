@@ -1,0 +1,8 @@
+-keep class com.togg.companion.core.VehicleTelemetry { *; }
+-keep class com.togg.companion.core.VehicleTelemetry$* { *; }
+-keep class com.togg.companion.core.DigitalKey { *; }
+-keep class com.togg.companion.widget.ToggAppWidgetProvider { *; }
+-keep class com.togg.companion.wearable.PhoneWearListenerService { *; }
+-keep class com.togg.companion.ui.ToggActionReceiver { *; }
+-keep class com.togg.companion.ui.ToggActionActivity { *; }
+-keep class androidx.security.crypto.** { *; }

@@ -22,9 +22,18 @@ android {
     testOptions {
         unitTests.isReturnDefaultValues = true
     }
+
+    buildTypes {
+        release {
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+        }
+    }
 }
 
 dependencies {
+    implementation("androidx.security:security-crypto:1.1.0-alpha06")
     implementation("androidx.swiperefreshlayout:swiperefreshlayout:1.1.0")
     implementation("com.google.android.gms:play-services-wearable:18.2.0")
     testImplementation("junit:junit:4.13.2")

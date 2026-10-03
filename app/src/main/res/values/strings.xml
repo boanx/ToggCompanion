@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">T10F Asistan</string>
+    <string name="app_name">TOGG asistan</string>
     <string name="vehicle_title">Togg T10F Fastback</string>
     <string name="plate_placeholder">06GDU258</string>
     <string name="status_live">CANLI</string>

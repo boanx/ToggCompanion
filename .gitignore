@@ -13,3 +13,6 @@ wear/build/
 *.apk
 *.ap_
 *.dex
+.gradle-local/
+.gradle-user/
+.android-user/

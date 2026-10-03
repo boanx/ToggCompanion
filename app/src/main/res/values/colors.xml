@@ -1,20 +1,24 @@
-<?xml version="1.0" encoding="utf-8"?>
+﻿<?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="bg_dark">#05080E</color>
-    <color name="card_bg">#0F1724</color>
-    <color name="card_stroke">#1E293B</color>
-    <color name="card_inner">#162132</color>
-
-    <color name="accent_togg">#00C2D6</color>
-    <color name="accent_blue">#3874FF</color>
-    <color name="accent_purple">#8B5CF6</color>
-
-    <color name="status_green">#10B981</color>
-    <color name="status_amber">#F59E0B</color>
-    <color name="status_red">#EF4444</color>
-
-    <color name="text_primary">#F8FAFC</color>
-    <color name="text_secondary">#94A3B8</color>
-    <color name="text_muted">#64748B</color>
+    <color name="bg_dark">#F1F5F9</color>
+    <color name="card_bg">#E8F0F8</color>
+    <color name="card_stroke">#2600C2D6</color>
+    <color name="card_inner">#DCE7F2</color>
+    <color name="tire_low_bg">#FEE2E2</color>
+    <color name="tire_low_stroke">#EF4444</color>
+    <color name="accent_togg">#007F91</color>
+    <color name="accent_blue">#285AC7</color>
+    <color name="accent_purple">#7045B5</color>
+    <color name="status_green">#087B55</color>
+    <color name="status_amber">#A86100</color>
+    <color name="status_red">#BA2935</color>
+    <color name="text_primary">#132033</color>
+    <color name="text_secondary">#43546A</color>
+    <color name="text_muted">#63748A</color>
     <color name="white">#FFFFFF</color>
+    <color name="divider">#C7D4E2</color>
+    <color name="bg_light">#F0F4F8</color>
+    <color name="card_bg_light">#E2E8F0</color>
+    <color name="text_primary_light">#0F172A</color>
+    <color name="text_secondary_light">#475569</color>
 </resources>

@@ -2,6 +2,10 @@ package com.togg.companion.wear;
 
 import android.content.Context;
 import android.content.SharedPreferences;
+import android.util.Log;
+
+import androidx.security.crypto.EncryptedSharedPreferences;
+import androidx.security.crypto.MasterKey;
 
 import java.util.concurrent.CopyOnWriteArrayList;
 
@@ -10,6 +14,8 @@ import java.util.concurrent.CopyOnWriteArrayList;
  */
 public final class WatchDataStore {
     private static final String PREF_NAME = "togg_watch_prefs";
+    private static final String ENCRYPTED_PREF_NAME = "togg_watch_encrypted_prefs";
+    private static final String TAG = "WatchDataStore";
     private static final String KEY_SOC = "soc";
     private static final String KEY_RANGE = "range_km";
     private static final String KEY_CHARGING = "is_charging";
@@ -102,6 +108,44 @@ public final class WatchDataStore {
     private static final String KEY_DK_CAN_LOCK = "dk_can_lock";
     private static final String KEY_DK_CAN_UNLOCK = "dk_can_unlock";
 
+    private static SharedPreferences keyPrefs(Context context) {
+        try {
+            MasterKey masterKey = new MasterKey.Builder(context.getApplicationContext())
+                    .setKeyScheme(MasterKey.KeyScheme.AES256_GCM).build();
+            SharedPreferences encrypted = EncryptedSharedPreferences.create(
+                    context.getApplicationContext(), ENCRYPTED_PREF_NAME, masterKey,
+                    EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
+                    EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM);
+            SharedPreferences legacy = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE);
+            if (legacy.contains(KEY_DK_TOKEN)) {
+                SharedPreferences.Editor editor = encrypted.edit();
+                if (!encrypted.contains(KEY_DK_TOKEN)) {
+                    editor.putBoolean(KEY_DK_ACTIVE, legacy.getBoolean(KEY_DK_ACTIVE, false))
+                            .putString(KEY_DK_ID, legacy.getString(KEY_DK_ID, ""))
+                            .putString(KEY_DK_SE_ID, legacy.getString(KEY_DK_SE_ID, ""))
+                            .putString(KEY_DK_VIN, legacy.getString(KEY_DK_VIN, "T10F"))
+                            .putString(KEY_DK_PLATE, legacy.getString(KEY_DK_PLATE, "34 TOGG 10"))
+                            .putString(KEY_DK_HOLDER, legacy.getString(KEY_DK_HOLDER, ""))
+                            .putLong(KEY_DK_VALID_UNTIL, legacy.getLong(KEY_DK_VALID_UNTIL, 0))
+                            .putString(KEY_DK_TOKEN, legacy.getString(KEY_DK_TOKEN, ""))
+                            .putBoolean(KEY_DK_CAN_LOCK, legacy.getBoolean(KEY_DK_CAN_LOCK, true))
+                            .putBoolean(KEY_DK_CAN_UNLOCK, legacy.getBoolean(KEY_DK_CAN_UNLOCK, true));
+                    if (!editor.commit()) throw new IllegalStateException("Watch key migration failed");
+                }
+                if (!legacy.edit().remove(KEY_DK_ACTIVE).remove(KEY_DK_ID).remove(KEY_DK_SE_ID)
+                        .remove(KEY_DK_VIN).remove(KEY_DK_PLATE).remove(KEY_DK_HOLDER)
+                        .remove(KEY_DK_VALID_UNTIL).remove(KEY_DK_TOKEN)
+                        .remove(KEY_DK_CAN_LOCK).remove(KEY_DK_CAN_UNLOCK).commit()) {
+                    Log.e(TAG, "SECURITY ALERT: Failed to remove legacy watch digital key");
+                }
+            }
+            return encrypted;
+        } catch (Exception error) {
+            Log.e(TAG, "SECURITY ALERT: Encrypted watch digital key storage unavailable", error);
+            throw new IllegalStateException("Encrypted watch digital key storage unavailable", error);
+        }
+    }
+
     public static class WatchDigitalKey {
         public final boolean isActive;
         public final String keyId;
@@ -145,8 +189,8 @@ public final class WatchDataStore {
 
     public static void saveDigitalKey(Context context, WatchDigitalKey key) {
         if (context == null || key == null) return;
-        SharedPreferences prefs = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE);
-        prefs.edit()
+        SharedPreferences prefs = keyPrefs(context);
+        boolean saved = prefs.edit()
                 .putBoolean(KEY_DK_ACTIVE, key.isActive)
                 .putString(KEY_DK_ID, key.keyId)
                 .putString(KEY_DK_SE_ID, key.seId)
@@ -157,7 +201,8 @@ public final class WatchDataStore {
                 .putString(KEY_DK_TOKEN, key.token)
                 .putBoolean(KEY_DK_CAN_LOCK, key.canLock)
                 .putBoolean(KEY_DK_CAN_UNLOCK, key.canUnlock)
-                .apply();
+                .commit();
+        if (!saved) throw new IllegalStateException("Encrypted watch digital key save failed");
 
         WatchTelemetry t = getTelemetry(context);
         for (OnDataChangeListener listener : listeners) {
@@ -169,7 +214,7 @@ public final class WatchDataStore {
 
     public static WatchDigitalKey getDigitalKey(Context context) {
         if (context == null) return null;
-        SharedPreferences prefs = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE);
+        SharedPreferences prefs = keyPrefs(context);
         if (!prefs.getBoolean(KEY_DK_ACTIVE, false)) {
             return null;
         }
@@ -194,11 +239,9 @@ public final class WatchDataStore {
 
     public static void removeDigitalKey(Context context) {
         if (context == null) return;
-        SharedPreferences prefs = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE);
+        SharedPreferences prefs = keyPrefs(context);
         prefs.edit()
-                .putBoolean(KEY_DK_ACTIVE, false)
-                .putString(KEY_DK_TOKEN, "")
-                .apply();
+                .clear().commit();
 
         WatchTelemetry t = getTelemetry(context);
         for (OnDataChangeListener listener : listeners) {

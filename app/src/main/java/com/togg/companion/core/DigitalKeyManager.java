@@ -4,6 +4,8 @@ import android.content.Context;
 import android.content.SharedPreferences;
 import android.net.Uri;
 import android.util.Log;
+import androidx.security.crypto.EncryptedSharedPreferences;
+import androidx.security.crypto.MasterKey;
 
 import org.json.JSONObject;
 
@@ -20,7 +22,9 @@ import java.util.regex.Pattern;
 public final class DigitalKeyManager {
     private static final String TAG = "DigitalKeyManager";
     private static final String PREF_NAME = "togg_digital_key_prefs";
+    private static final String ENCRYPTED_PREF_NAME = "togg_digital_key_prefs_encrypted";
     private static final String KEY_SAVED_JSON = "active_digital_key_json";
+    private static final String KEY_ENCRYPTED_MIGRATION_COMPLETE = "__encrypted_migration_complete";
 
     public interface OnKeyChangeListener {
         void onKeyChanged(DigitalKey activeKey);
@@ -29,10 +33,45 @@ public final class DigitalKeyManager {
     private static final CopyOnWriteArrayList<OnKeyChangeListener> listeners = new CopyOnWriteArrayList<>();
 
     private final SharedPreferences prefs;
+    private final boolean isEncrypted;
 
     public DigitalKeyManager(Context context) {
-        this.prefs = context.getApplicationContext().getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE);
+        Context appContext = context.getApplicationContext();
+        SharedPreferences legacyPrefs = appContext.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE);
+        SharedPreferences selectedPrefs;
+        boolean encrypted = false;
+        try {
+            MasterKey masterKey = new MasterKey.Builder(appContext)
+                    .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
+                    .build();
+            selectedPrefs = EncryptedSharedPreferences.create(
+                    appContext,
+                    ENCRYPTED_PREF_NAME,
+                    masterKey,
+                    EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
+                    EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM);
+            if (selectedPrefs.getBoolean(KEY_ENCRYPTED_MIGRATION_COMPLETE, false)) {
+                if (!legacyPrefs.getAll().isEmpty()) legacyPrefs.edit().clear().commit();
+            } else {
+                String savedKey = legacyPrefs.getString(KEY_SAVED_JSON, null);
+                SharedPreferences.Editor editor = selectedPrefs.edit();
+                if (savedKey != null && !selectedPrefs.contains(KEY_SAVED_JSON)) {
+                    editor.putString(KEY_SAVED_JSON, savedKey);
+                }
+                editor.putBoolean(KEY_ENCRYPTED_MIGRATION_COMPLETE, true);
+                if (editor.commit()) legacyPrefs.edit().clear().commit();
+                else throw new IllegalStateException("Unable to migrate digital key preferences");
+            }
+            encrypted = true;
+        } catch (Throwable error) {
+            Log.e(TAG, "SECURITY ALERT: EncryptedSharedPreferences unavailable; MasterKey generation failed.", error);
+            selectedPrefs = legacyPrefs;
+        }
+        this.prefs = selectedPrefs;
+        this.isEncrypted = encrypted;
     }
+
+    public boolean isEncryptedStorageActive() { return isEncrypted; }
 
     public static void registerListener(OnKeyChangeListener listener) {
         if (listener != null && !listeners.contains(listener)) {

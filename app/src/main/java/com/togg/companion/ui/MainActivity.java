@@ -2,12 +2,22 @@ package com.togg.companion.ui;
 
 import android.app.Activity;
 import android.app.AlertDialog;
+import android.Manifest;
+import android.bluetooth.BluetoothDevice;
+import android.content.pm.PackageManager;
+import android.os.Build;
+import android.os.Handler;
+import android.os.Looper;
 import android.content.Intent;
 import android.graphics.Typeface;
+import android.graphics.Bitmap;
+import android.graphics.Canvas;
+import android.graphics.Rect;
 import android.net.Uri;
 import android.os.Bundle;
 import android.view.LayoutInflater;
 import android.view.View;
+import android.view.PixelCopy;
 import android.widget.Button;
 import android.widget.CheckBox;
 import android.widget.EditText;
@@ -18,31 +28,60 @@ import android.widget.TextView;
 import android.widget.Toast;
 import android.location.Address;
 import android.location.Geocoder;
+import android.view.Gravity;
+import android.view.ViewGroup;
+import android.webkit.WebResourceRequest;
+import android.webkit.WebSettings;
+import android.webkit.WebView;
+import android.webkit.WebViewClient;
+import android.widget.FrameLayout;
+import android.widget.ImageView;
+import android.widget.RadioGroup;
 
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
+import java.util.Calendar;
 import java.util.Date;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
+import java.io.File;
+import java.io.FileOutputStream;
 
 import androidx.swiperefreshlayout.widget.SwipeRefreshLayout;
 
 import com.togg.companion.R;
 import com.togg.companion.core.DigitalKey;
 import com.togg.companion.core.DigitalKeyManager;
+import com.togg.companion.core.TelemetryParser;
 import com.togg.companion.core.TrumoreBridge;
 import com.togg.companion.core.VehicleTelemetry;
+import com.togg.companion.core.VehicleBleManager;
 import com.togg.companion.data.SecureTokenStorage;
 import com.togg.companion.data.TelemetryDatabaseHelper;
 import com.togg.companion.data.remote.TvaApiClient;
 import com.togg.companion.wearable.WearSyncManager;
+import com.togg.companion.widget.ToggAppWidgetProvider;
 
 public final class MainActivity extends Activity {
+    public static final String ACTION_WIDGET_REFRESH = "com.togg.companion.widget.OPEN_AND_REFRESH";
 
     private static MainActivity instance;
+
+    @Override
+    protected void attachBaseContext(android.content.Context newBase) {
+        SecureTokenStorage prefs = new SecureTokenStorage(newBase);
+        String theme = prefs.getAppTheme();
+        android.content.res.Configuration config = new android.content.res.Configuration(newBase.getResources().getConfiguration());
+        if ("dark".equals(theme)) config.uiMode = (config.uiMode & ~android.content.res.Configuration.UI_MODE_NIGHT_MASK) | android.content.res.Configuration.UI_MODE_NIGHT_YES;
+        else if ("light".equals(theme)) config.uiMode = (config.uiMode & ~android.content.res.Configuration.UI_MODE_NIGHT_MASK) | android.content.res.Configuration.UI_MODE_NIGHT_NO;
+        super.attachBaseContext(newBase.createConfigurationContext(config));
+    }
 
     public static MainActivity getInstance() {
         return instance;
@@ -66,9 +105,10 @@ public final class MainActivity extends Activity {
     private TextView tvVehicleTitle;
     private TextView tvVehiclePlate;
     private TextView tvVehicleVin;
+    private TextView tvAppRefreshTime;
     private TextView tvSyncStatus;
 
-    // 8 Tabs Navigation Elements
+    // 7 Tabs Navigation Elements
     private TextView[] tabButtons;
     private View[] tabPages;
     private int selectedTabIndex = 0;
@@ -140,23 +180,35 @@ public final class MainActivity extends Activity {
     private Button btnWalkToCar;
 
     // Global Actions
-    private Button btnRefresh;
 
     // Interactive State
     private boolean isDoorLocked = true;
     private boolean isTrunkOpen = false;
     private boolean isClimateActive = false;
     private boolean isDefrostActive = false;
+    private boolean isHeadlightsOn = false;
     private double currentTargetTemp = 21.5;
     private VehicleTelemetry currentTelemetry;
 
+    // Quick Actions Bar
+    private LinearLayout llQuickActionsRow;
+    private View emotorReadyCard;
+    private TextView tvEmotorState;
+    private ImageView ivEmotorIcon;
+    private TextView tvBleStatus;
+    private VehicleBleManager bleManager;
+    private final VehicleBleManager.OnBleStateChangeListener bleListener = state -> updateBleStatus();
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
+        try { WebView.enableSlowWholeDocumentDraw(); } catch (Throwable ignored) {}
         super.onCreate(savedInstanceState);
         instance = this;
-        setContentView(R.layout.activity_main);
-
         storage = new SecureTokenStorage(this);
+        bleManager = VehicleBleManager.getInstance(this);
+        bleManager.addListener(bleListener);
+        applyThemeBeforeContent();
+        setContentView(R.layout.activity_main);
         dbHelper = new TelemetryDatabaseHelper(this);
         apiClient = new TvaApiClient(storage);
 
@@ -164,19 +216,43 @@ public final class MainActivity extends Activity {
         setupWindowInsets();
         setupSwipeRefresh();
         setupListeners();
+        updateBleStatus();
 
         // Default to Tab 0 (Ana Sayfa)
         selectTab(0);
 
+        isHeadlightsOn = storage.isHeadlightsOn();
+        renderQuickActionsBar();
+        updateEmotorCard();
+
         // Load cached telemetry if present, otherwise fetch fresh/demo data
         VehicleTelemetry cached = dbHelper.getLatest();
         if (cached != null) {
+            if (cached.latitude != 0.0 && (cached.latitude != 39.925054 || !storage.hasSavedLocation())) {
+                storage.saveLastLocation(cached.latitude, cached.longitude, cached.parkAddress);
+            } else if (storage.hasSavedLocation()) {
+                cached = cached.withLocation(storage.getLastLat(), storage.getLastLon(), storage.getLastAddress());
+            }
             currentTelemetry = cached;
+            isDoorLocked = cached.isLocked;
+            isTrunkOpen = cached.trunkOpen;
+            isHeadlightsOn = cached.headlightsOn;
+            isClimateActive = cached.isClimateActive;
+            currentTargetTemp = cached.targetHvacCelsius > 0 ? cached.targetHvacCelsius : 21.5;
             renderTelemetry(cached, storage.isDemoMode());
+            updateHeroCarVisual();
+            renderQuickActionsBar();
+            ToggAppWidgetProvider.updateAllWidgets(this);
+        } else if (storage.hasSavedLocation()) {
+            VehicleTelemetry demo = TelemetryParser.createDemoSnapshot(storage.getVin(), storage.getPlate());
+            demo = demo.withLocation(storage.getLastLat(), storage.getLastLon(), storage.getLastAddress());
+            currentTelemetry = demo;
+            renderTelemetry(demo, storage.isDemoMode());
+            updateHeroCarVisual();
+            renderQuickActionsBar();
         }
         refreshTelemetry();
 
-        handleActionIntent(getIntent());
         handleDigitalKeyIntent(getIntent());
     }
 
@@ -184,6 +260,7 @@ public final class MainActivity extends Activity {
     protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
         setIntent(intent);
+        if (intent != null && ACTION_WIDGET_REFRESH.equals(intent.getAction())) refreshTelemetry();
         handleActionIntent(intent);
         handleDigitalKeyIntent(intent);
     }
@@ -202,29 +279,32 @@ public final class MainActivity extends Activity {
         navBarSpacer = findViewById(R.id.nav_bar_spacer);
 
         tvVehicleTitle = findViewById(R.id.tv_vehicle_title);
+        tvVehicleTitle.setText(storage.getVehicleName());
+        tvVehicleTitle.setClickable(true);
+        tvVehicleTitle.setFocusable(true);
+        tvVehicleTitle.setOnClickListener(v -> showEditVehicleNameDialog());
         tvVehiclePlate = findViewById(R.id.tv_vehicle_plate);
         tvVehicleVin = findViewById(R.id.tv_vehicle_vin);
+        tvAppRefreshTime = findViewById(R.id.tv_app_refresh_time);
         tvSyncStatus = findViewById(R.id.tv_sync_status);
 
-        // 8 Tab Selector Buttons (Fixed at Top)
+        // 7 Tab Selector Buttons (Fixed at Top)
         tabButtons = new TextView[]{
                 findViewById(R.id.tab_home),
                 findViewById(R.id.tab_battery),
                 findViewById(R.id.tab_aux_battery),
                 findViewById(R.id.tab_tires),
-                findViewById(R.id.tab_climate),
                 findViewById(R.id.tab_security),
                 findViewById(R.id.tab_drive),
                 findViewById(R.id.tab_location)
         };
 
-        // 8 Corresponding Page Containers
+        // 7 Corresponding Page Containers
         tabPages = new View[]{
                 findViewById(R.id.page_home),
                 findViewById(R.id.page_battery),
                 findViewById(R.id.page_aux_battery),
                 findViewById(R.id.page_tires),
-                findViewById(R.id.page_climate),
                 findViewById(R.id.page_security),
                 findViewById(R.id.page_drive),
                 findViewById(R.id.page_location)
@@ -232,7 +312,7 @@ public final class MainActivity extends Activity {
 
         // Page 0: Ana Sayfa
         homeCardsContainer = findViewById(R.id.home_cards_container);
-        btnCustomizeHome = findViewById(R.id.btn_customize_home);
+        btnCustomizeHome = null;
 
         // Page 1: Batarya & Şarj
         tvBatterySoc = findViewById(R.id.tv_battery_soc);
@@ -277,6 +357,7 @@ public final class MainActivity extends Activity {
 
         // Page 6: Sürüş İstatistikleri
         tvDriveMode = findViewById(R.id.tv_drive_mode);
+        tvDriveMode.setOnClickListener(v -> showDriveModeSelector());
         tvOdometer = findViewById(R.id.tv_odometer);
         tvTripDist = findViewById(R.id.tv_trip_dist);
         tvTripDur = findViewById(R.id.tv_trip_dur);
@@ -292,13 +373,19 @@ public final class MainActivity extends Activity {
         tvParkDuration = findViewById(R.id.tv_park_duration);
         btnWalkToCar = findViewById(R.id.btn_walk_to_car);
 
-        // Global Action Buttons
-        btnRefresh = findViewById(R.id.btn_refresh);
-
         // Page 0: Ana Sayfa
         homeCardsContainer = findViewById(R.id.home_cards_container);
-        btnCustomizeHome = findViewById(R.id.btn_customize_home);
-        tvHomeSummary = findViewById(R.id.tv_home_summary);
+        btnCustomizeHome = null;
+        View legacyDigitalKeyCard = findViewById(R.id.card_digital_key);
+        if (legacyDigitalKeyCard != null) legacyDigitalKeyCard.setVisibility(View.GONE);
+        llQuickActionsRow = findViewById(R.id.ll_quick_actions_row);
+        emotorReadyCard = findViewById(R.id.card_emotor_ready);
+        tvEmotorState = findViewById(R.id.tv_emotor_state);
+        ivEmotorIcon = findViewById(R.id.iv_emotor_icon);
+        tvBleStatus = findViewById(R.id.tv_ble_status);
+        tvBleStatus.setOnClickListener(v -> showBleConnectionDialog());
+        emotorReadyCard.setOnClickListener(v -> toggleReadyToDrive());
+
     }
 
     private void setupWindowInsets() {
@@ -350,18 +437,13 @@ public final class MainActivity extends Activity {
             }
         });
 
-        findViewById(R.id.btn_smart_access).setOnClickListener(v -> {
-            boolean opened = TrumoreBridge.openSmartAccess(this);
-            if (!opened) {
-                Toast.makeText(this, "Trumore uygulaması bulunamadı", Toast.LENGTH_SHORT).show();
-            }
-        });
-
-        btnRefresh.setOnClickListener(v -> refreshTelemetry());
         findViewById(R.id.btn_settings).setOnClickListener(v -> showSettingsDialog());
 
         if (tvVehicleVin != null) {
             tvVehicleVin.setOnClickListener(v -> showVinInputDialog(null));
+        }
+        if (tvAppRefreshTime != null) {
+            tvAppRefreshTime.setOnClickListener(v -> showVinInputDialog(null));
         }
         if (tvVehiclePlate != null) {
             tvVehiclePlate.setOnClickListener(v -> showVinInputDialog(null));
@@ -460,8 +542,16 @@ public final class MainActivity extends Activity {
     }
 
     private void openNavigationToCar() {
-        double lat = currentTelemetry != null ? currentTelemetry.latitude : 39.925054;
-        double lon = currentTelemetry != null ? currentTelemetry.longitude : 32.834755;
+        double lat = currentTelemetry != null ? currentTelemetry.latitude : storage.getLastLat();
+        double lon = currentTelemetry != null ? currentTelemetry.longitude : storage.getLastLon();
+        if (lat == 0.0 && lon == 0.0) {
+            lat = storage.getLastLat();
+            lon = storage.getLastLon();
+        }
+        if (lat == 0.0 && lon == 0.0) {
+            lat = 39.925054;
+            lon = 32.834755;
+        }
         Uri gmmIntentUri = Uri.parse("geo:" + lat + "," + lon + "?q=" + lat + "," + lon + "(Togg T10F Park Yeri)");
         Intent mapIntent = new Intent(Intent.ACTION_VIEW, gmmIntentUri);
         mapIntent.setPackage("com.google.android.apps.maps");
@@ -473,22 +563,292 @@ public final class MainActivity extends Activity {
         }
     }
 
-    private void toggleDoorLock() {
-        if (!storage.isDemoMode() && storage.hasValidToken()) {
-            Toast.makeText(this, "Trumore Akıllı Erişim açılıyor...", Toast.LENGTH_SHORT).show();
-            TrumoreBridge.openDoorControl(this);
-            return;
+    public void toggleHeadlights() {
+        isHeadlightsOn = !isHeadlightsOn;
+        storage.setHeadlightsOn(isHeadlightsOn);
+        if (currentTelemetry != null) {
+            currentTelemetry = currentTelemetry.withHeadlights(isHeadlightsOn);
+            dbHelper.insert(currentTelemetry);
+        }
+        updateHeroCarVisual();
+        renderQuickActionsBar();
+        Toast.makeText(this, isHeadlightsOn ? "💡 Farlar Açıldı" : "💡 Farlar Kapatıldı", Toast.LENGTH_SHORT).show();
+    }
+
+    private void updateHeroCarVisual() {
+        // The former hero car overlays are no longer part of the dashboard layout.
+        updateEmotorCard();
+    }
+
+    private void renderQuickActionsBar() {
+        if (llQuickActionsRow == null) return;
+        llQuickActionsRow.removeAllViews();
+        String[] keys = {"lock", "trunk"};
+        String[] labels = {"Kap\u0131 Kilidi", "Bagaj"};
+        String[] icons = {"\uD83D\uDD12", "\uD83D\uDE97"};
+        String[] actions = storage.getQuickActionsOrder().split(",");
+        for (String raw : actions) {
+            String act = raw.trim().toLowerCase(Locale.ROOT);
+            int index = Arrays.asList(keys).indexOf(act);
+            if (index < 0) continue;
+            LinearLayout item = new LinearLayout(this);
+            item.setOrientation(LinearLayout.VERTICAL);
+            item.setGravity(Gravity.CENTER_HORIZONTAL);
+            LinearLayout.LayoutParams itemLp = new LinearLayout.LayoutParams(dpToPx(62), ViewGroup.LayoutParams.WRAP_CONTENT);
+            itemLp.setMargins(dpToPx(16), 0, dpToPx(16), 0); item.setLayoutParams(itemLp);
+            TextView icon = new TextView(this); icon.setText(icons[index]); icon.setTextSize(21); icon.setGravity(Gravity.CENTER);
+            icon.setBackgroundResource(R.drawable.btn_action_circle);
+            item.addView(icon, new LinearLayout.LayoutParams(dpToPx(52), dpToPx(52)));
+            TextView label = new TextView(this); label.setText(labels[index]); label.setTextSize(9); label.setTextColor(getColor(R.color.text_secondary)); label.setGravity(Gravity.CENTER); label.setPadding(0, dpToPx(3), 0, 0);
+            item.addView(label);
+            item.setOnClickListener(v -> dispatchQuickAction(act));
+            llQuickActionsRow.addView(item);
+        }
+        updateEmotorCard();
+    }
+
+    private void updateEmotorCard() {
+        boolean connected = bleManager != null && bleManager.isConnected();
+        boolean ready = currentTelemetry != null && currentTelemetry.isReadyToDrive;
+        int color;
+        String state;
+        if (!connected) {
+            color = 0xFF94A3B8;
+            state = "Bluetooth Bağlı Değil";
+        } else if (!ready) {
+            color = 0xFFFFB800;
+            state = "Aksesuar Modu";
+        } else {
+            color = 0xFF10B981;
+            state = "Sürüş Modu (READY)";
+        }
+        if (tvEmotorState != null) {
+            tvEmotorState.setText(state);
+            tvEmotorState.setTextColor(color);
+        }
+        if (ivEmotorIcon != null) ivEmotorIcon.setColorFilter(color);
+    }
+
+    private void dispatchQuickAction(String action) {
+        switch (action) {
+            case "lock": toggleDoorLock(); break;
+            case "headlights": toggleHeadlights(); break;
+            case "trunk": confirmAndToggleTrunk(); break;
+            case "climate": toggleClimate(); break;
+            case "defrost": toggleDefrost(); break;
+            case "locate": openNavigationToCar(); break;
+            case "drive_mode": showDriveModeSelector(); break;
+            default: Toast.makeText(this, action + " komutu gï¿½nderildi.", Toast.LENGTH_SHORT).show(); break;
+        }
+    }
+
+    private void showQuickActionsCustomizerDialog() {
+        final String[] keys = {"lock", "trunk"};
+        final String[] labels = {"Kap\u0131 Kilidi \uD83D\uDD12", "Bagaj \uD83D\uDE97"};
+        Set<String> selected = new HashSet<>(Arrays.asList(storage.getQuickActionsOrder().split(",")));
+        boolean[] checked = new boolean[keys.length];
+        for (int i = 0; i < keys.length; i++) checked[i] = selected.contains(keys[i]);
+        new AlertDialog.Builder(this).setTitle("Hızlı İşlemleri Düzenle").setMultiChoiceItems(labels, checked, (d, which, value) -> checked[which] = value)
+                .setPositiveButton("Kaydet", (d, which) -> { StringBuilder order = new StringBuilder(); for (int i = 0; i < keys.length; i++) if (checked[i]) { if (order.length() > 0) order.append(','); order.append(keys[i]); } storage.setQuickActionsOrder(order.toString()); renderQuickActionsBar(); })
+                .setNegativeButton("İptal", null).show();
+    }
+
+    static class ActionItem {
+        final String key;
+        final String title;
+        ActionItem(String key, String title) {
+            this.key = key;
+            this.title = title;
+        }
+    }
+
+    private void showQuickActionsReorderDialog() {
+        if (isFinishing() || isDestroyed()) return;
+
+        String orderStr = storage.getQuickActionsOrder();
+        List<String> currentOrder = new ArrayList<>(Arrays.asList(orderStr.split(",")));
+        Map<String, String> nameMap = new LinkedHashMap<>();
+        nameMap.put("emotor", "⚡ e-Motor");
+        nameMap.put("headlights", "💡 Far Kontrolü");
+        nameMap.put("lock", "🔒 Kapı Kilidi");
+        nameMap.put("trunk", "🚗 Bagaj Kapağı");
+        nameMap.put("climate", "❄️ Klima Aç/Kapat");
+        nameMap.put("defrost", "♨️ Ön Cam Buğu");
+        nameMap.put("locate", "🧭 Haritada Aracı Bul");
+
+        List<ActionItem> items = new ArrayList<>();
+        for (String k : currentOrder) {
+            String key = k.trim().toLowerCase(Locale.ROOT);
+            if (nameMap.containsKey(key)) {
+                items.add(new ActionItem(key, nameMap.get(key)));
+            }
+        }
+        for (Map.Entry<String, String> e : nameMap.entrySet()) {
+            boolean exists = false;
+            for (ActionItem it : items) {
+                if (it.key.equals(e.getKey())) { exists = true; break; }
+            }
+            if (!exists) items.add(new ActionItem(e.getKey(), e.getValue()));
         }
 
-        isDoorLocked = !isDoorLocked;
-        updateDoorUi();
-        String message = isDoorLocked ? "Togg T10F: Kapılar Kilitlendi" : "Togg T10F: Kapı Kilitleri Açıldı";
-        Toast.makeText(this, message, Toast.LENGTH_SHORT).show();
+        AlertDialog.Builder builder = new AlertDialog.Builder(this);
+        builder.setTitle("⚡ Hızlı Komut Buton Sıralaması");
 
-        if (currentTelemetry != null) {
-            currentTelemetry = currentTelemetry.withLock(isDoorLocked);
-            dbHelper.insert(currentTelemetry);
+        ScrollView sv = new ScrollView(this);
+        LinearLayout listLayout = new LinearLayout(this);
+        listLayout.setOrientation(LinearLayout.VERTICAL);
+        listLayout.setPadding(dpToPx(16), dpToPx(10), dpToPx(16), dpToPx(10));
+
+        Runnable[] refreshList = new Runnable[1];
+        refreshList[0] = () -> {
+            listLayout.removeAllViews();
+            for (int i = 0; i < items.size(); i++) {
+                final int pos = i;
+                ActionItem it = items.get(pos);
+
+                LinearLayout row = new LinearLayout(this);
+                row.setOrientation(LinearLayout.HORIZONTAL);
+                row.setGravity(Gravity.CENTER_VERTICAL);
+                row.setPadding(0, dpToPx(6), 0, dpToPx(6));
+
+                TextView tv = new TextView(this);
+                tv.setText((pos + 1) + ". " + it.title);
+                tv.setTextSize(14);
+                tv.setTextColor(getColor(R.color.text_primary));
+                LinearLayout.LayoutParams tvLp = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1.0f);
+                tv.setLayoutParams(tvLp);
+                row.addView(tv);
+
+                if (pos > 0) {
+                    Button upBtn = new Button(this);
+                    upBtn.setText("▲");
+                    upBtn.setTextSize(12);
+                    upBtn.setBackgroundResource(R.drawable.badge_pill);
+                    upBtn.setTextColor(getColor(R.color.accent_togg));
+                    LinearLayout.LayoutParams bLp = new LinearLayout.LayoutParams(dpToPx(42), dpToPx(36));
+                    bLp.setMarginEnd(dpToPx(4));
+                    upBtn.setLayoutParams(bLp);
+                    upBtn.setOnClickListener(v -> {
+                        Collections.swap(items, pos, pos - 1);
+                        refreshList[0].run();
+                    });
+                    row.addView(upBtn);
+                }
+
+                if (pos < items.size() - 1) {
+                    Button downBtn = new Button(this);
+                    downBtn.setText("▼");
+                    downBtn.setTextSize(12);
+                    downBtn.setBackgroundResource(R.drawable.badge_pill);
+                    downBtn.setTextColor(getColor(R.color.accent_togg));
+                    LinearLayout.LayoutParams bLp = new LinearLayout.LayoutParams(dpToPx(42), dpToPx(36));
+                    downBtn.setLayoutParams(bLp);
+                    downBtn.setOnClickListener(v -> {
+                        Collections.swap(items, pos, pos + 1);
+                        refreshList[0].run();
+                    });
+                    row.addView(downBtn);
+                }
+
+                listLayout.addView(row);
+            }
+        };
+
+        refreshList[0].run();
+        sv.addView(listLayout);
+        builder.setView(sv);
+
+        builder.setPositiveButton("Kaydet", (dialog, which) -> {
+            StringBuilder sb = new StringBuilder();
+            for (int i = 0; i < items.size(); i++) {
+                if (i > 0) sb.append(",");
+                sb.append(items.get(i).key);
+            }
+            storage.setQuickActionsOrder(sb.toString());
+            renderQuickActionsBar();
+            Toast.makeText(this, "Buton yerleşimi kaydedildi", Toast.LENGTH_SHORT).show();
+        });
+        builder.setNegativeButton("İptal", null);
+        builder.show();
+    }
+
+    private void toggleDoorLock() {
+        sendVehicleCommand(isDoorLocked ? VehicleBleManager.VehicleCommand.UNLOCK : VehicleBleManager.VehicleCommand.LOCK);
+    }
+
+    private boolean requireBleConnection() {
+        if (bleManager.isConnected()) return true;
+        new AlertDialog.Builder(this).setTitle("Bluetooth Bağlantısı Gerekli")
+                .setMessage("Togg güvenlik protokolü gereği kapı kilidi, bagaj ve e-motor komutları yalnızca araç ile Bluetooth bağlantısı kurulduğunda çalışır.\n\nLütfen önce aracınıza Bluetooth ile bağlanın.")
+                .setPositiveButton("Araca Bağlan", (d, w) -> showBleConnectionDialog())
+                .setNegativeButton("İptal", null).show();
+        return false;
+    }
+
+    private void sendVehicleCommand(VehicleBleManager.VehicleCommand command) {
+        if (!requireBleConnection()) return;
+        bleManager.setTelemetry(currentTelemetry);
+        Toast.makeText(this, "Komut araca iletiliyor...", Toast.LENGTH_SHORT).show();
+        bleManager.sendCommand(command, (success, message, updated) -> {
+            Toast.makeText(this, message, Toast.LENGTH_LONG).show();
+            if (!success || updated == null) return;
+            currentTelemetry = updated;
+            isDoorLocked = updated.isLocked;
+            isTrunkOpen = updated.trunkOpen;
+            dbHelper.insert(updated);
+            storage.saveActiveTelemetry(updated);
+            updateDoorUi();
+            updateTrunkUi();
+            updateHeroCarVisual();
+            renderQuickActionsBar();
+            ToggAppWidgetProvider.updateAllWidgets(this);
             renderHomeCards();
+            WearSyncManager.syncTelemetry(this, updated);
+        });
+    }
+
+    private void updateBleStatus() {
+        updateEmotorCard();
+        if (tvBleStatus == null) return;
+        if (bleManager.isConnected()) {
+            tvBleStatus.setText("📶 Bluetooth: Bağlı (" + bleManager.getConnectedDeviceName() + ")");
+            tvBleStatus.setTextColor(getColor(R.color.status_green));
+        } else if (bleManager.getConnectionState() == VehicleBleManager.ConnectionState.CONNECTING) {
+            tvBleStatus.setText("⏳ Bluetooth: Araca Bağlanıyor...");
+            tvBleStatus.setTextColor(getColor(R.color.status_amber));
+        } else {
+            tvBleStatus.setText("⭕ Bluetooth: Bağlı Değil (Dokun & Bağlan)");
+            tvBleStatus.setTextColor(getColor(R.color.text_secondary));
+        }
+    }
+
+    private void showBleConnectionDialog() {
+        boolean needsPermission = Build.VERSION.SDK_INT >= 31 && !bleManager.hasConnectPermission();
+        List<BluetoothDevice> devices = needsPermission ? new ArrayList<>() : bleManager.getPairedToggDevices();
+        List<String> options = new ArrayList<>();
+        for (BluetoothDevice device : devices) options.add(device.getName());
+        if (needsPermission) options.add("Bluetooth izni ver");
+        if (storage.isDemoMode()) options.add("Demo BLE bağlantısı");
+        if (bleManager.isConnected()) options.add("Bağlantıyı kes");
+        if (options.isEmpty()) options.add("Eşleşmiş Togg cihazı bulunamadı");
+        new AlertDialog.Builder(this).setTitle("Araç Bluetooth Bağlantısı")
+                .setItems(options.toArray(new String[0]), (dialog, which) -> {
+                    if (which < devices.size()) {
+                        if (!bleManager.isBluetoothEnabled()) {
+                            Toast.makeText(this, "Bluetooth'u açın ve tekrar deneyin.", Toast.LENGTH_LONG).show();
+                        } else bleManager.connectToVehicle(this, devices.get(which));
+                    } else if (needsPermission && which == devices.size()) {
+                        requestPermissions(new String[]{Manifest.permission.BLUETOOTH_CONNECT}, 301);
+                    } else if (storage.isDemoMode() && which == devices.size() + (needsPermission ? 1 : 0)) {
+                        bleManager.setDemoConnected(true);
+                    } else if (bleManager.isConnected()) bleManager.disconnect();
+                }).setNegativeButton("İptal", null).show();
+    }
+    @Override
+    public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        if (requestCode == 301 && grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+            showBleConnectionDialog();
         }
     }
 
@@ -510,28 +870,11 @@ public final class MainActivity extends Activity {
     }
 
     private void confirmAndToggleTrunk() {
-        AlertDialog.Builder builder = new AlertDialog.Builder(this);
-        builder.setTitle(R.string.trunk_confirm_title);
-        builder.setMessage(R.string.trunk_confirm_msg);
-        builder.setPositiveButton("Evet, " + (isTrunkOpen ? "Kapat" : "Aç"), (dialog, which) -> {
-            if (!storage.isDemoMode() && storage.hasValidToken()) {
-                TrumoreBridge.openTrunkControl(this);
-                return;
-            }
-
-            isTrunkOpen = !isTrunkOpen;
-            updateTrunkUi();
-            String message = isTrunkOpen ? "Bagaj Kapağı Açıldı" : "Bagaj Kapağı Kapatıldı";
-            Toast.makeText(this, message, Toast.LENGTH_SHORT).show();
-
-            if (currentTelemetry != null) {
-                currentTelemetry = currentTelemetry.withTrunk(isTrunkOpen);
-                dbHelper.insert(currentTelemetry);
-                renderHomeCards();
-            }
-        });
-        builder.setNegativeButton(R.string.btn_cancel, null);
-        builder.create().show();
+        if (!requireBleConnection()) return;
+        new AlertDialog.Builder(this).setTitle(R.string.trunk_confirm_title)
+                .setMessage(R.string.trunk_confirm_msg)
+                .setPositiveButton("Evet, " + (isTrunkOpen ? "Kapat" : "Aç"), (d, w) -> sendVehicleCommand(VehicleBleManager.VehicleCommand.TRUNK))
+                .setNegativeButton(R.string.btn_cancel, null).show();
     }
 
     private void updateTrunkUi() {
@@ -559,34 +902,34 @@ public final class MainActivity extends Activity {
             currentTelemetry = currentTelemetry.withClimate(currentTargetTemp, isClimateActive, isDefrostActive);
             renderHomeCards();
         }
+        updateHeroCarVisual();
     }
 
     private void toggleClimate() {
-        if (!storage.isDemoMode() && storage.hasValidToken()) {
-            Toast.makeText(this, "Trumore İklimlendirme açılıyor...", Toast.LENGTH_SHORT).show();
-            TrumoreBridge.openClimateControl(this);
-            return;
-        }
-
         isClimateActive = !isClimateActive;
         updateClimateUi();
+        updateHeroCarVisual();
+        renderQuickActionsBar();
 
         if (isClimateActive) {
-            Toast.makeText(this, "Klima Başlatıldı: " + String.format("%.1f°C", currentTargetTemp), Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, "Togg T10F: İklimlendirme Başlatıldı (" + String.format(Locale.ROOT, "%.1f°C", currentTargetTemp) + ") ❄️", Toast.LENGTH_SHORT).show();
         } else {
-            Toast.makeText(this, "Klima Durduruldu", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, "Togg T10F: İklimlendirme Kapatıldı", Toast.LENGTH_SHORT).show();
         }
 
         if (currentTelemetry != null) {
             currentTelemetry = currentTelemetry.withClimate(currentTargetTemp, isClimateActive, isDefrostActive);
             dbHelper.insert(currentTelemetry);
             renderHomeCards();
+            WearSyncManager.syncTelemetry(this, currentTelemetry);
         }
     }
 
     private void toggleDefrost() {
         isDefrostActive = !isDefrostActive;
         updateClimateUi();
+        updateHeroCarVisual();
+        renderQuickActionsBar();
 
         if (isDefrostActive) {
             Toast.makeText(this, "Ön Cam Buğu Çözme (Maksimum Isıtma) Aktif", Toast.LENGTH_SHORT).show();
@@ -623,23 +966,27 @@ public final class MainActivity extends Activity {
     }
 
     private void refreshTelemetry() {
-        btnRefresh.setEnabled(false);
         swipeRefresh.setRefreshing(true);
         tvSyncStatus.setText("GÜNCELLENİYOR...");
 
         apiClient.fetchTelemetry(new TvaApiClient.TelemetryCallback() {
             @Override
             public void onSuccess(VehicleTelemetry telemetry, boolean isLive) {
-                currentTelemetry = telemetry;
-                dbHelper.insert(telemetry);
-                long syncTime = telemetry.timestampMillis > 0 ? telemetry.timestampMillis : System.currentTimeMillis();
-                storage.setLastSync(syncTime);
+                final VehicleTelemetry updatedTelemetry = telemetry != null && currentTelemetry != null
+                        ? telemetry.withReadyToDrive(currentTelemetry.isReadyToDrive) : telemetry;
+                currentTelemetry = updatedTelemetry;
+                dbHelper.insert(updatedTelemetry);
+                storage.saveActiveTelemetry(updatedTelemetry);
+                ToggAppWidgetProvider.updateAllWidgets(MainActivity.this);
+                storage.setLastRefresh(System.currentTimeMillis());
+                if (updatedTelemetry.timestampMillis > 0) {
+                    storage.setLastSync(updatedTelemetry.timestampMillis);
+                }
                 runOnUiThread(() -> {
-                    renderTelemetry(telemetry, !isLive);
-                    btnRefresh.setEnabled(true);
+                    renderTelemetry(updatedTelemetry, !isLive);
                     swipeRefresh.setRefreshing(false);
                     if (isLive) {
-                        Toast.makeText(MainActivity.this, "Canlı telemetri güncellendi (" + formatSyncTime(syncTime) + ")", Toast.LENGTH_SHORT).show();
+                        Toast.makeText(MainActivity.this, "Canlı telemetri alındı", Toast.LENGTH_SHORT).show();
                     }
                 });
             }
@@ -647,9 +994,10 @@ public final class MainActivity extends Activity {
             @Override
             public void onError(String message, VehicleTelemetry fallback) {
                 currentTelemetry = fallback;
+                if (fallback != null) dbHelper.insert(fallback);
+                ToggAppWidgetProvider.updateAllWidgets(MainActivity.this);
                 runOnUiThread(() -> {
                     renderTelemetry(fallback, true);
-                    btnRefresh.setEnabled(true);
                     swipeRefresh.setRefreshing(false);
                     Toast.makeText(MainActivity.this, message, Toast.LENGTH_LONG).show();
 
@@ -671,17 +1019,23 @@ public final class MainActivity extends Activity {
 
     private void renderTelemetry(VehicleTelemetry t, boolean isDemo) {
         if (t == null) return;
+        storage.saveActiveTelemetry(t);
+        ToggAppWidgetProvider.updateAllWidgets(this);
 
         // Vehicle Header with VIN and Last Sync Timestamp
-        tvVehicleTitle.setText(getString(R.string.vehicle_title));
+        tvVehicleTitle.setText(storage.getVehicleName());
         tvVehiclePlate.setText(t.plate != null && !t.plate.isEmpty() ? t.plate : getString(R.string.plate_placeholder));
         if (tvVehicleVin != null) {
-            long syncTime = t.timestampMillis > 0 ? t.timestampMillis : storage.getLastSync();
-            String timeStr = formatSyncTime(syncTime);
-            String vinStr = (t.vin != null && !t.vin.isEmpty()) ? t.vin : "-";
-            tvVehicleVin.setText("Şasi: " + vinStr + " • Son Güncelleme: " + timeStr);
+            long vehicleSync = t.timestampMillis;
+            String syncLabel = vehicleSync > 0 ? formatTrumoreSyncTime(vehicleSync) : "--:--";
+            tvVehicleVin.setText("Akıllı Cihaz ile son senkronizasyon: " + syncLabel);
+        }
+        if (tvAppRefreshTime != null) {
+            long appRefresh = storage.getLastRefresh();
+            tvAppRefreshTime.setText("Son Yenileme: " + (appRefresh > 0 ? formatSyncTime(appRefresh) : "--:--"));
         }
         tvSyncStatus.setText(isDemo ? getString(R.string.status_demo) : getString(R.string.status_live));
+        updateEmotorCard();
 
         // 1. Batarya & Şarj
         tvBatterySoc.setText(t.batterySocPercent + "%");
@@ -744,7 +1098,7 @@ public final class MainActivity extends Activity {
         if (tvDriveMode != null) {
             tvDriveMode.setText(formatDriveMode(t.driveMode));
         }
-        tvOdometer.setText(String.format("%,d km", t.odometerKm));
+        tvOdometer.setText(t.odometerKm + " km");
         updateTripStatsUi();
 
         // 7. Konum & Park
@@ -802,6 +1156,10 @@ public final class MainActivity extends Activity {
     }
 
     public void executeDigitalKeyAction(String action) {
+        if ("emotor".equalsIgnoreCase(action) || "start_drive".equalsIgnoreCase(action)) {
+            toggleReadyToDrive();
+            return;
+        }
         DigitalKeyManager keyMgr = new DigitalKeyManager(this);
         DigitalKey activeKey = keyMgr.getActiveKey();
         if (activeKey == null || !activeKey.isValid()) {
@@ -816,7 +1174,9 @@ public final class MainActivity extends Activity {
             }
             isDoorLocked = true;
             updateDoorUi();
-            Toast.makeText(this, "🔑 Dijital Anahtar: Kapılar kilitlendi (" + activeKey.seId + ")", Toast.LENGTH_SHORT).show();
+            updateHeroCarVisual();
+            renderQuickActionsBar();
+            Toast.makeText(this, "🔑 Dijital Anahtar: Kapılar kilitlendi 🔒 (" + activeKey.seId + ")", Toast.LENGTH_SHORT).show();
             if (currentTelemetry != null) {
                 currentTelemetry = currentTelemetry.withLock(true);
                 dbHelper.insert(currentTelemetry);
@@ -830,14 +1190,81 @@ public final class MainActivity extends Activity {
             }
             isDoorLocked = false;
             updateDoorUi();
-            Toast.makeText(this, "🔑 Dijital Anahtar: Kapı kilitleri açıldı (" + activeKey.seId + ")", Toast.LENGTH_SHORT).show();
+            updateHeroCarVisual();
+            renderQuickActionsBar();
+            Toast.makeText(this, "🔑 Dijital Anahtar: Kapı kilitleri açıldı 🔓 (" + activeKey.seId + ")", Toast.LENGTH_SHORT).show();
             if (currentTelemetry != null) {
                 currentTelemetry = currentTelemetry.withLock(false);
                 dbHelper.insert(currentTelemetry);
                 renderHomeCards();
                 WearSyncManager.syncTelemetry(this, currentTelemetry);
             }
+        } else if ("trunk".equalsIgnoreCase(action)) {
+            if (!activeKey.canTrunk) {
+                Toast.makeText(this, "Bu anahtarın bagaj kapağını açma yetkisi yok!", Toast.LENGTH_SHORT).show();
+                return;
+            }
+            isTrunkOpen = !isTrunkOpen;
+            updateTrunkUi();
+            updateHeroCarVisual();
+            renderQuickActionsBar();
+            Toast.makeText(this, "🔑 Dijital Anahtar: Bagaj " + (isTrunkOpen ? "açıldı 📦" : "kapatıldı") + " (" + activeKey.seId + ")", Toast.LENGTH_SHORT).show();
+            if (currentTelemetry != null) {
+                currentTelemetry = currentTelemetry.withTrunk(isTrunkOpen);
+                dbHelper.insert(currentTelemetry);
+                renderHomeCards();
+                WearSyncManager.syncTelemetry(this, currentTelemetry);
+            }
+        } else if ("climate_start".equalsIgnoreCase(action) || "climate".equalsIgnoreCase(action)) {
+            if (!activeKey.canClimate) {
+                Toast.makeText(this, "Bu anahtarın iklimlendirme yetkisi yok!", Toast.LENGTH_SHORT).show();
+                return;
+            }
+            isClimateActive = true;
+            updateClimateUi();
+            updateHeroCarVisual();
+            renderQuickActionsBar();
+            Toast.makeText(this, "🔑 Dijital Anahtar: İklimlendirme başlatıldı ❄️ (" + activeKey.seId + ")", Toast.LENGTH_SHORT).show();
+            if (currentTelemetry != null) {
+                currentTelemetry = currentTelemetry.withClimate(currentTargetTemp, true, isDefrostActive);
+                dbHelper.insert(currentTelemetry);
+                renderHomeCards();
+                WearSyncManager.syncTelemetry(this, currentTelemetry);
+            }
+        } else if ("climate_stop".equalsIgnoreCase(action)) {
+            isClimateActive = false;
+            updateClimateUi();
+            updateHeroCarVisual();
+            renderQuickActionsBar();
+            Toast.makeText(this, "🔑 Dijital Anahtar: İklimlendirme durduruldu (" + activeKey.seId + ")", Toast.LENGTH_SHORT).show();
+            if (currentTelemetry != null) {
+                currentTelemetry = currentTelemetry.withClimate(currentTargetTemp, false, isDefrostActive);
+                dbHelper.insert(currentTelemetry);
+                renderHomeCards();
+                WearSyncManager.syncTelemetry(this, currentTelemetry);
+            }
+        } else if ("defrost".equalsIgnoreCase(action)) {
+            isDefrostActive = !isDefrostActive;
+            updateClimateUi();
+            updateHeroCarVisual();
+            renderQuickActionsBar();
+            Toast.makeText(this, "🔑 Dijital Anahtar: Ön cam buğu çözme " + (isDefrostActive ? "açıldı ♨️" : "kapatıldı"), Toast.LENGTH_SHORT).show();
+            if (currentTelemetry != null) {
+                currentTelemetry = currentTelemetry.withClimate(currentTargetTemp, isClimateActive, isDefrostActive);
+                dbHelper.insert(currentTelemetry);
+                renderHomeCards();
+                WearSyncManager.syncTelemetry(this, currentTelemetry);
+            }
+        } else if ("headlights".equalsIgnoreCase(action)) {
+            toggleHeadlights();
         }
+    }
+
+    private void toggleReadyToDrive() {
+        if (!requireBleConnection()) return;
+        if (currentTelemetry == null) currentTelemetry = dbHelper.getLatest();
+        if (currentTelemetry == null) return;
+        sendVehicleCommand(currentTelemetry.isReadyToDrive ? VehicleBleManager.VehicleCommand.EMOTOR_STOP : VehicleBleManager.VehicleCommand.EMOTOR_START);
     }
 
     private void handleDigitalKeyIntent(Intent intent) {
@@ -880,7 +1307,7 @@ public final class MainActivity extends Activity {
             WearSyncManager.syncDigitalKey(this, key);
             renderDigitalKeyCard();
             renderHomeCards();
-            selectTab(5); // Switch to Security tab
+            selectTab(4); // Switch to Security tab
             Toast.makeText(this, "Dijital anahtar başarıyla kaydedildi ve akıllı saate aktarıldı! ⌚🔑", Toast.LENGTH_LONG).show();
         });
 
@@ -889,7 +1316,7 @@ public final class MainActivity extends Activity {
             mgr.saveKey(key);
             renderDigitalKeyCard();
             renderHomeCards();
-            selectTab(5);
+            selectTab(4);
             Toast.makeText(this, "Dijital anahtar telefona kaydedildi.", Toast.LENGTH_SHORT).show();
         });
 
@@ -1045,7 +1472,7 @@ public final class MainActivity extends Activity {
         }
 
         if (tvTripDist != null) {
-            tvTripDist.setText(String.format(Locale.US, "%.1f km", trip.distanceKm));
+            tvTripDist.setText(String.format(Locale.getDefault(), "%d km", Math.round(trip.distanceKm)));
         }
         if (tvTripDur != null) {
             int h = trip.durationMinutes / 60;
@@ -1082,6 +1509,25 @@ public final class MainActivity extends Activity {
         return "Sürüş Modu: " + cleaned;
     }
 
+    private void showDriveModeSelector() {
+        new AlertDialog.Builder(this)
+                .setTitle("Sürüş Modu")
+                .setItems(new String[]{"Eco", "Konfor", "Spor"}, (dialog, which) -> {
+                    String[] modes = {"Eco", "Comfort", "Sport"};
+                    activateDriveMode(modes[which]);
+                })
+                .show();
+    }
+
+    private void activateDriveMode(String mode) {
+        if (currentTelemetry == null) return;
+        currentTelemetry = currentTelemetry.withDriveMode(mode);
+        dbHelper.insert(currentTelemetry);
+        renderTelemetry(currentTelemetry, storage.isDemoMode());
+        String displayMode = "Eco".equals(mode) ? "Eco" : ("Sport".equals(mode) ? "Spor" : "Konfor");
+        Toast.makeText(this, "Togg T10F: Sürüş Modu -> " + displayMode + ("Sport".equals(mode) ? " ⚡" : ""), Toast.LENGTH_SHORT).show();
+    }
+
     private void resolveParkAddress(double lat, double lon) {
         if (tvGpsCoords != null) {
             tvGpsCoords.setText(String.format(Locale.US, "GPS: %.6f, %.6f", lat, lon));
@@ -1112,6 +1558,13 @@ public final class MainActivity extends Activity {
                     }
                     if (!res.isEmpty()) {
                         String finalRes = res;
+                        storage.saveLastLocation(lat, lon, finalRes);
+                        if (currentTelemetry != null) {
+                            currentTelemetry = currentTelemetry.withLocation(lat, lon, finalRes);
+                            storage.saveActiveTelemetry(currentTelemetry);
+                            dbHelper.insert(currentTelemetry);
+                        }
+                        ToggAppWidgetProvider.updateAllWidgets(MainActivity.this);
                         runOnUiThread(() -> {
                             if (tvParkAddress != null) tvParkAddress.setText(finalRes);
                         });
@@ -1167,321 +1620,608 @@ public final class MainActivity extends Activity {
         List<String> order = new ArrayList<>(Arrays.asList(orderStr.split(",")));
         Set<String> visibleSet = new HashSet<>(Arrays.asList(visibleStr.split(",")));
 
+        List<View> gridCards = new ArrayList<>();
+        View fullWidthLocationCard = null;
+
         for (String cardKey : order) {
             String key = cardKey.trim();
+            if (CARD_DIGITAL_KEY.equals(key)) continue;
+            if (CARD_CONTROLS.equals(key) || CARD_CLIMATE.equals(key)) continue;
             if (!visibleSet.contains(key)) continue;
 
-            View cardView = buildHomeCard(key, t);
-            if (cardView != null) {
-                homeCardsContainer.addView(cardView);
+            if (CARD_LOCATION.equals(key)) {
+                fullWidthLocationCard = buildLocationCard(t);
+            } else {
+                View card = buildHomeCard(key, t);
+                if (card != null) {
+                    gridCards.add(card);
+                }
             }
+        }
+
+        // Pair grid cards into 2-column adaptive rows (max 2 cards per row)
+        for (int i = 0; i < gridCards.size(); i += 2) {
+            LinearLayout row = new LinearLayout(this);
+            row.setOrientation(LinearLayout.HORIZONTAL);
+            row.setLayoutParams(new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+            row.setWeightSum(2.0f);
+
+            View card1 = gridCards.get(i);
+            LinearLayout.LayoutParams p1 = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1.0f);
+            p1.bottomMargin = dpToPx(12);
+            if (i + 1 < gridCards.size()) {
+                p1.setMarginEnd(dpToPx(6));
+            }
+            card1.setLayoutParams(p1);
+            row.addView(card1);
+
+            if (i + 1 < gridCards.size()) {
+                View card2 = gridCards.get(i + 1);
+                LinearLayout.LayoutParams p2 = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1.0f);
+                p2.bottomMargin = dpToPx(12);
+                p2.setMarginStart(dpToPx(6));
+                card2.setLayoutParams(p2);
+                row.addView(card2);
+            }
+
+            homeCardsContainer.addView(row);
+        }
+
+        // In-App Embedded Google Maps Location Card spans full width
+        if (fullWidthLocationCard != null) {
+            homeCardsContainer.addView(fullWidthLocationCard);
         }
     }
 
     private View buildHomeCard(String key, VehicleTelemetry t) {
         LinearLayout card = new LinearLayout(this);
-        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
-        );
-        params.bottomMargin = dpToPx(14);
-        card.setLayoutParams(params);
         card.setOrientation(LinearLayout.VERTICAL);
         card.setBackgroundResource(R.drawable.card_bg);
-        card.setPadding(dpToPx(16), dpToPx(16), dpToPx(16), dpToPx(16));
+        card.setPadding(dpToPx(14), dpToPx(14), dpToPx(14), dpToPx(14));
+        card.setGravity(Gravity.CENTER);
+        card.setMinimumHeight(dpToPx(115));
+        card.setClickable(true);
+        card.setFocusable(true);
 
         switch (key) {
             case CARD_BATTERY: {
-                TextView title = createCardTitle("⚡ Yüksek Voltaj Batarya");
-                card.addView(title);
-
-                LinearLayout row = new LinearLayout(this);
-                row.setOrientation(LinearLayout.HORIZONTAL);
-                row.setGravity(android.view.Gravity.CENTER_VERTICAL);
-                LinearLayout.LayoutParams rowParams = new LinearLayout.LayoutParams(
-                        LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
-                rowParams.topMargin = dpToPx(6);
-                row.setLayoutParams(rowParams);
 
                 TextView socTv = new TextView(this);
                 socTv.setText("%" + t.batterySocPercent);
                 socTv.setTextColor(getColor(R.color.text_primary));
-                socTv.setTextSize(28);
+                socTv.setTextSize(36);
                 socTv.setTypeface(null, Typeface.BOLD);
-                row.addView(socTv);
+                socTv.setPadding(0, 0, 0, 0);
+                socTv.setGravity(Gravity.CENTER);
+                socTv.setLayoutParams(new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+                card.addView(socTv);
 
                 TextView rangeTv = new TextView(this);
-                rangeTv.setText("  •  " + t.estimatedRangeKm + " km menzil");
+                rangeTv.setText(t.estimatedRangeKm + " km menzil");
                 rangeTv.setTextColor(getColor(R.color.accent_togg));
                 rangeTv.setTextSize(16);
                 rangeTv.setTypeface(null, Typeface.BOLD);
-                row.addView(rangeTv);
-                card.addView(row);
+                rangeTv.setPadding(0, dpToPx(4), 0, 0);
+                rangeTv.setGravity(Gravity.CENTER);
+                rangeTv.setLayoutParams(new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+                card.addView(rangeTv);
 
                 TextView statusTv = new TextView(this);
-                statusTv.setText(t.isCharging ? "⚡ Şarj Ediliyor (" + String.format(Locale.US, "%.1f", t.chargePowerKw) + " kW)" : "Şarjda Değil (" + t.chargeMode + ")");
+                statusTv.setText(t.isCharging ? String.format(Locale.US, "%.1f kW", t.chargePowerKw) : t.chargeMode);
                 statusTv.setTextColor(getColor(t.isCharging ? R.color.status_green : R.color.text_muted));
-                statusTv.setTextSize(12);
-                statusTv.setPadding(0, dpToPx(6), 0, 0);
+                statusTv.setTextSize(13);
+                statusTv.setPadding(0, dpToPx(4), 0, 0);
+                statusTv.setGravity(Gravity.CENTER);
+                statusTv.setLayoutParams(new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
                 card.addView(statusTv);
-
-                TextView hintTv = new TextView(this);
-                hintTv.setText("Detaylar için dokunun ➔");
-                hintTv.setTextColor(getColor(R.color.text_muted));
-                hintTv.setTextSize(10);
-                hintTv.setPadding(0, dpToPx(6), 0, 0);
-                card.addView(hintTv);
 
                 card.setOnClickListener(v -> selectTab(1));
                 return card;
             }
-            case CARD_CONTROLS: {
-                TextView title = createCardTitle("🎮 Hızlı Araç Kontrolleri");
-                card.addView(title);
+            case CARD_12V: {
 
-                LinearLayout btnRow = new LinearLayout(this);
-                btnRow.setOrientation(LinearLayout.HORIZONTAL);
-                LinearLayout.LayoutParams rowParams = new LinearLayout.LayoutParams(
-                        LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
-                rowParams.topMargin = dpToPx(10);
-                btnRow.setLayoutParams(rowParams);
+                TextView vTv = new TextView(this);
+                vTv.setText(String.format(Locale.US, "%.1f V", t.lowVoltage12vVolts));
+                vTv.setTextColor(getColor(R.color.text_primary));
+                vTv.setTextSize(34);
+                vTv.setTypeface(null, Typeface.BOLD);
+                vTv.setPadding(0, 0, 0, 0);
+                vTv.setGravity(Gravity.CENTER);
+                vTv.setLayoutParams(new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+                card.addView(vTv);
+
+                TextView socTv = new TextView(this);
+                socTv.setText("%" + t.lowVoltage12vPercent + " Kapasite");
+                socTv.setTextColor(getColor(R.color.accent_togg));
+                socTv.setTextSize(16);
+                socTv.setTypeface(null, Typeface.BOLD);
+                socTv.setPadding(0, dpToPx(4), 0, 0);
+                socTv.setGravity(Gravity.CENTER);
+                socTv.setLayoutParams(new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+                card.addView(socTv);
+
+                TextView statusTv = new TextView(this);
+                statusTv.setText(t.is12vBatteryLow() ? "⚠️ Aracı çalıştırın" : "✓ Akü sağlıklı");
+                statusTv.setTextColor(getColor(t.is12vBatteryLow() ? R.color.status_red : R.color.status_green));
+                statusTv.setTextSize(13);
+                statusTv.setPadding(0, dpToPx(4), 0, 0);
+                statusTv.setGravity(Gravity.CENTER);
+                statusTv.setLayoutParams(new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+                card.addView(statusTv);
+
+                card.setOnClickListener(v -> selectTab(2));
+                return card;
+            }
+            case CARD_CLIMATE: {
+
+                TextView targetTv = new TextView(this);
+                targetTv.setText(String.format(Locale.US, "%.1f°C", currentTargetTemp));
+                targetTv.setTextColor(getColor(R.color.text_primary));
+                targetTv.setTextSize(34);
+                targetTv.setTypeface(null, Typeface.BOLD);
+                targetTv.setPadding(0, 0, 0, 0);
+                targetTv.setGravity(Gravity.CENTER);
+                targetTv.setLayoutParams(new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+                card.addView(targetTv);
+
+                TextView cabinTv = new TextView(this);
+                cabinTv.setText(String.format(Locale.US, "Kabin: %.1f°C", t.cabinTempCelsius));
+                cabinTv.setTextColor(getColor(R.color.accent_togg));
+                cabinTv.setTextSize(16);
+                cabinTv.setTypeface(null, Typeface.BOLD);
+                cabinTv.setPadding(0, dpToPx(4), 0, 0);
+                cabinTv.setGravity(Gravity.CENTER);
+                cabinTv.setLayoutParams(new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+                card.addView(cabinTv);
+
+                TextView outdoorTv = new TextView(this);
+                outdoorTv.setText(String.format(Locale.US, "Dış Ortam: %.1f°C", t.outdoorTempCelsius));
+                outdoorTv.setTextColor(getColor(R.color.text_muted));
+                outdoorTv.setTextSize(13);
+                outdoorTv.setPadding(0, dpToPx(4), 0, 0);
+                outdoorTv.setGravity(Gravity.CENTER);
+                outdoorTv.setLayoutParams(new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+                card.addView(outdoorTv);
+
+                card.setOnClickListener(v -> selectTab(6));
+                return card;
+            }
+            case CARD_DRIVE: {
+                VehicleTelemetry.TripData trip = t.myTrip != null ? t.myTrip : (t.currentTrip != null ? t.currentTrip :
+                        new VehicleTelemetry.TripData(t.odometerKm, 14500, 17.8, 56));
+                int h = trip.durationMinutes / 60;
+                int m = trip.durationMinutes % 60;
+                String durStr = (h > 0) ? String.format(Locale.getDefault(), "%d sa %d dk", h, m) : String.format(Locale.getDefault(), "%d dk", m);
+
+                TextView distTv = new TextView(this);
+                distTv.setText(String.format(Locale.getDefault(), "%d km", Math.round(trip.distanceKm)));
+                distTv.setTextColor(getColor(R.color.text_primary));
+                distTv.setTextSize(32);
+                distTv.setTypeface(null, Typeface.BOLD);
+                distTv.setGravity(Gravity.CENTER);
+                distTv.setLayoutParams(new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+                card.addView(distTv);
+
+                TextView durTv = new TextView(this);
+                durTv.setText(durStr);
+                durTv.setTextColor(getColor(R.color.accent_togg));
+                durTv.setTextSize(16);
+                durTv.setTypeface(null, Typeface.BOLD);
+                durTv.setPadding(0, dpToPx(4), 0, 0);
+                durTv.setGravity(Gravity.CENTER);
+                durTv.setLayoutParams(new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+                card.addView(durTv);
+
+                TextView statsTv = new TextView(this);
+                statsTv.setText(String.format(Locale.US, "%.1f kWh  •  %d km/s", trip.avgConsumption, trip.avgSpeed));
+                statsTv.setTextColor(getColor(R.color.text_secondary));
+                statsTv.setTextSize(13);
+                statsTv.setPadding(0, dpToPx(4), 0, 0);
+                statsTv.setGravity(Gravity.CENTER);
+                statsTv.setLayoutParams(new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+                card.addView(statsTv);
+
+                card.setOnClickListener(v -> selectTab(5));
+                return card;
+            }
+            case CARD_CONTROLS: {
 
                 Button lockBtn = new Button(this);
                 lockBtn.setText(isDoorLocked ? "🔓 Kilit Aç" : "🔒 Kilitle");
                 lockBtn.setTextColor(getColor(R.color.accent_togg));
                 lockBtn.setBackgroundResource(R.drawable.btn_outline);
                 lockBtn.setTextSize(11);
-                LinearLayout.LayoutParams b1Params = new LinearLayout.LayoutParams(0, dpToPx(40), 1.0f);
-                b1Params.rightMargin = dpToPx(4);
-                lockBtn.setLayoutParams(b1Params);
+                LinearLayout.LayoutParams b1Lp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dpToPx(38));
+                b1Lp.topMargin = dpToPx(8);
+                lockBtn.setLayoutParams(b1Lp);
                 lockBtn.setOnClickListener(v -> toggleDoorLock());
-                btnRow.addView(lockBtn);
+                card.addView(lockBtn);
 
                 Button trunkBtn = new Button(this);
-                trunkBtn.setText(isTrunkOpen ? "Kapat" : "🚗 Bagaj");
+                trunkBtn.setText(isTrunkOpen ? "Bagaj Kapat" : "🚗 Bagaj Aç");
                 trunkBtn.setTextColor(getColor(R.color.accent_togg));
                 trunkBtn.setBackgroundResource(R.drawable.btn_outline);
                 trunkBtn.setTextSize(11);
-                LinearLayout.LayoutParams b2Params = new LinearLayout.LayoutParams(0, dpToPx(40), 1.0f);
-                b2Params.leftMargin = dpToPx(2);
-                b2Params.rightMargin = dpToPx(2);
-                trunkBtn.setLayoutParams(b2Params);
+                LinearLayout.LayoutParams b2Lp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dpToPx(38));
+                b2Lp.topMargin = dpToPx(6);
+                trunkBtn.setLayoutParams(b2Lp);
                 trunkBtn.setOnClickListener(v -> confirmAndToggleTrunk());
-                btnRow.addView(trunkBtn);
-
-                Button climBtn = new Button(this);
-                climBtn.setText(isClimateActive ? "❄️ Kapat" : "❄️ Klima");
-                climBtn.setTextColor(getColor(isClimateActive ? R.color.status_green : R.color.accent_togg));
-                climBtn.setBackgroundResource(R.drawable.btn_outline);
-                climBtn.setTextSize(11);
-                LinearLayout.LayoutParams b3Params = new LinearLayout.LayoutParams(0, dpToPx(40), 1.0f);
-                b3Params.leftMargin = dpToPx(4);
-                climBtn.setLayoutParams(b3Params);
-                climBtn.setOnClickListener(v -> toggleClimate());
-                btnRow.addView(climBtn);
-
-                card.addView(btnRow);
-                return card;
-            }
-            case CARD_DRIVE: {
-                TextView title = createCardTitle("📊 Sürüş ve Yolculuk");
-                card.addView(title);
-
-                TextView modeTv = new TextView(this);
-                modeTv.setText(formatDriveMode(t.driveMode) + "  •  Toplam: " + String.format(Locale.getDefault(), "%,d km", t.odometerKm));
-                modeTv.setTextColor(getColor(R.color.accent_togg));
-                modeTv.setTextSize(12);
-                modeTv.setTypeface(null, Typeface.BOLD);
-                modeTv.setPadding(0, dpToPx(4), 0, dpToPx(4));
-                card.addView(modeTv);
-
-                VehicleTelemetry.TripData trip = t.currentTrip != null ? t.currentTrip :
-                        new VehicleTelemetry.TripData(t.lastTripDistanceKm, t.lastTripDurationMin, t.lastTripAvgConsumption, t.lastTripAvgSpeed);
-                int h = trip.durationMinutes / 60;
-                int m = trip.durationMinutes % 60;
-                String durStr = h > 0 ? (h + " sa " + m + " dk") : (m + " dk");
-
-                TextView statsTv = new TextView(this);
-                statsTv.setText(String.format(Locale.US, "Son Sürüş: %.1f km  •  %s  •  %.1f kWh/100km", trip.distanceKm, durStr, trip.avgConsumption));
-                statsTv.setTextColor(getColor(R.color.text_primary));
-                statsTv.setTextSize(13);
-                card.addView(statsTv);
-
-                TextView hintTv = new TextView(this);
-                hintTv.setText("Tüm yolculuklar için dokunun ➔");
-                hintTv.setTextColor(getColor(R.color.text_muted));
-                hintTv.setTextSize(10);
-                hintTv.setPadding(0, dpToPx(6), 0, 0);
-                card.addView(hintTv);
-
-                card.setOnClickListener(v -> selectTab(6));
-                return card;
-            }
-            case CARD_TIRES: {
-                TextView title = createCardTitle("🛞 Lastik Basınçları (PSI)");
-                card.addView(title);
-
-                TextView fTires = new TextView(this);
-                fTires.setText(String.format(Locale.US, "Ön: Sol %.1f psi (%d°C)  |  Sağ %.1f psi (%d°C)",
-                        t.getTirePressurePsiFL(), t.tireTempFL, t.getTirePressurePsiFR(), t.tireTempFR));
-                fTires.setTextColor(getColor(R.color.text_primary));
-                fTires.setTextSize(12);
-                fTires.setPadding(0, dpToPx(4), 0, dpToPx(2));
-                card.addView(fTires);
-
-                TextView rTires = new TextView(this);
-                rTires.setText(String.format(Locale.US, "Arka: Sol %.1f psi (%d°C)  |  Sağ %.1f psi (%d°C)",
-                        t.getTirePressurePsiRL(), t.tireTempRL, t.getTirePressurePsiRR(), t.tireTempRR));
-                rTires.setTextColor(getColor(R.color.text_primary));
-                rTires.setTextSize(12);
-                rTires.setPadding(0, 0, 0, dpToPx(4));
-                card.addView(rTires);
-
-                TextView statusTv = new TextView(this);
-                boolean low = t.isAnyTireLow();
-                statusTv.setText(low ? "⚠️ Düşük Basınç Uyarısı" : "✓ Fabrika Tavsiyesi: 36 PSI (Normal)");
-                statusTv.setTextColor(getColor(low ? R.color.status_red : R.color.status_green));
-                statusTv.setTextSize(11);
-                card.addView(statusTv);
-
-                card.setOnClickListener(v -> selectTab(3));
-                return card;
-            }
-            case CARD_LOCATION: {
-                TextView title = createCardTitle("📍 Son Park Yeri");
-                card.addView(title);
-
-                TextView addrTv = new TextView(this);
-                addrTv.setText(tvParkAddress != null ? tvParkAddress.getText() : t.parkAddress);
-                addrTv.setTextColor(getColor(R.color.text_primary));
-                addrTv.setTextSize(14);
-                addrTv.setTypeface(null, Typeface.BOLD);
-                addrTv.setPadding(0, dpToPx(4), 0, dpToPx(2));
-                card.addView(addrTv);
-
-                TextView durTv = new TextView(this);
-                durTv.setText(tvParkDuration != null ? tvParkDuration.getText() : "Park süresi hesaplanıyor...");
-                durTv.setTextColor(getColor(R.color.status_green));
-                durTv.setTextSize(12);
-                durTv.setPadding(0, 0, 0, dpToPx(8));
-                card.addView(durTv);
-
-                Button navBtn = new Button(this);
-                navBtn.setText("🧭 Haritada Aracıma Yürü");
-                navBtn.setTextColor(getColor(R.color.white));
-                navBtn.setBackgroundResource(R.drawable.btn_gradient);
-                navBtn.setTextSize(12);
-                navBtn.setLayoutParams(new LinearLayout.LayoutParams(
-                        LinearLayout.LayoutParams.MATCH_PARENT, dpToPx(40)));
-                navBtn.setOnClickListener(v -> openNavigationToCar());
-                card.addView(navBtn);
+                card.addView(trunkBtn);
 
                 return card;
             }
-            case CARD_CLIMATE: {
-                TextView title = createCardTitle("❄️ İklimlendirme & Sıcaklık");
-                card.addView(title);
-
-                TextView tempsTv = new TextView(this);
-                tempsTv.setText(String.format(Locale.US, "Kabin: %.1f°C   •   Dış Ortam: %.1f°C   •   Hedef: %.1f°C",
-                        t.cabinTempCelsius, t.outdoorTempCelsius, currentTargetTemp));
-                tempsTv.setTextColor(getColor(R.color.text_primary));
-                tempsTv.setTextSize(13);
-                tempsTv.setPadding(0, dpToPx(4), 0, dpToPx(4));
-                card.addView(tempsTv);
-
-                TextView statusTv = new TextView(this);
-                statusTv.setText(isClimateActive ? "✓ Klima Açık ve Çalışıyor" : "Klima Kapalı");
-                statusTv.setTextColor(getColor(isClimateActive ? R.color.status_green : R.color.text_muted));
-                statusTv.setTextSize(11);
-                card.addView(statusTv);
-
-                card.setOnClickListener(v -> selectTab(4));
-                return card;
-            }
-            case CARD_12V: {
-                TextView title = createCardTitle("🔋 12V Alçak Gerilim Aküsü");
-                card.addView(title);
-
-                TextView vTv = new TextView(this);
-                vTv.setText(String.format(Locale.US, "Seviye: %%%d   •   Voltaj: %.1f V",
-                        t.lowVoltage12vPercent, t.lowVoltage12vVolts));
-                vTv.setTextColor(getColor(R.color.text_primary));
-                vTv.setTextSize(13);
-                vTv.setPadding(0, dpToPx(4), 0, dpToPx(4));
-                card.addView(vTv);
-
-                TextView statusTv = new TextView(this);
-                statusTv.setText(t.is12vBatteryLow() ? "⚠️ Akü Seviyesi Düşük! Aracı çalıştırın." : "✓ Akü Durumu Sağlıklı");
-                statusTv.setTextColor(getColor(t.is12vBatteryLow() ? R.color.status_red : R.color.status_green));
-                statusTv.setTextSize(11);
-                card.addView(statusTv);
-
-                card.setOnClickListener(v -> selectTab(2));
-                return card;
-            }
-            case CARD_DIGITAL_KEY: {
-                TextView title = createCardTitle("🔑 Trumore Dijital Anahtar");
-                title.setTextColor(getColor(R.color.accent_purple));
-                card.addView(title);
+            case "__removed_digital_key_card": {
+                LinearLayout headerRow = new LinearLayout(this);
+                headerRow.setOrientation(LinearLayout.HORIZONTAL);
+                headerRow.setGravity(Gravity.CENTER_VERTICAL);
+                headerRow.addView(createIconHeader("🔑"));
+                View spacer = new View(this);
+                headerRow.addView(spacer, new LinearLayout.LayoutParams(0, 1, 1.0f));
 
                 DigitalKeyManager keyMgr = new DigitalKeyManager(this);
                 DigitalKey dKey = keyMgr.getActiveKey();
+                boolean hasKey = dKey != null && dKey.isValid();
 
-                TextView tvStatus = new TextView(this);
-                tvStatus.setTextSize(13);
-                tvStatus.setPadding(0, dpToPx(4), 0, dpToPx(8));
-                if (dKey != null && dKey.isValid()) {
-                    tvStatus.setText("Durum: ✅ Aktif (" + dKey.vehiclePlate + " • " + dKey.getRemainingTimeDisplay() + ")");
-                    tvStatus.setTextColor(getColor(R.color.status_green));
-                } else if (dKey != null && !dKey.isValid()) {
-                    tvStatus.setText("Durum: ⚠️ Süresi Doldu");
-                    tvStatus.setTextColor(getColor(R.color.status_red));
-                } else {
-                    tvStatus.setText("Durum: ⚠️ Henüz Anahtar Eklenmedi");
-                    tvStatus.setTextColor(getColor(R.color.text_secondary));
-                }
-                card.addView(tvStatus);
+                headerRow.addView(createHeaderBadge(hasKey ? "Aktif" : "Anahtar", hasKey ? R.color.status_green : R.color.text_muted));
+                card.addView(headerRow);
 
-                LinearLayout btnRow = new LinearLayout(this);
-                btnRow.setOrientation(LinearLayout.HORIZONTAL);
+                TextView keyTitle = new TextView(this);
+                keyTitle.setText(hasKey ? "Trumore Anahtar" : "Anahtar Tanımsız");
+                keyTitle.setTextColor(getColor(R.color.text_primary));
+                keyTitle.setTextSize(16);
+                keyTitle.setTypeface(null, Typeface.BOLD);
+                keyTitle.setPadding(0, dpToPx(6), 0, 0);
+                card.addView(keyTitle);
 
-                Button btnCopy = new Button(this);
-                btnCopy.setText("⌚ Saate Kopyala");
-                btnCopy.setTextSize(12);
-                btnCopy.setTextColor(getColor(R.color.white));
-                btnCopy.setBackgroundResource(R.drawable.btn_gradient);
-                LinearLayout.LayoutParams p1 = new LinearLayout.LayoutParams(0, dpToPx(38), 1.0f);
-                p1.rightMargin = dpToPx(4);
-                btnCopy.setLayoutParams(p1);
-                btnCopy.setOnClickListener(v -> {
-                    DigitalKey k = new DigitalKeyManager(this).getActiveKey();
-                    if (k != null && k.isValid()) {
-                        WearSyncManager.syncDigitalKey(this, k);
-                        Toast.makeText(this, "Dijital anahtar akıllı saate aktarılıyor... ⌚", Toast.LENGTH_SHORT).show();
+                TextView keySub = new TextView(this);
+                keySub.setText(hasKey ? dKey.getRemainingTimeDisplay() : "Paylaşılan linki açın");
+                keySub.setTextColor(getColor(R.color.accent_purple));
+                keySub.setTextSize(12);
+                keySub.setPadding(0, dpToPx(2), 0, 0);
+                card.addView(keySub);
+
+                Button keyBtn = new Button(this);
+                keyBtn.setText(hasKey ? "⌚ Saate Aktar" : "Anahtar Ekle");
+                keyBtn.setTextColor(getColor(R.color.white));
+                keyBtn.setBackgroundResource(R.drawable.btn_gradient);
+                keyBtn.setTextSize(11);
+                LinearLayout.LayoutParams kBp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dpToPx(36));
+                kBp.topMargin = dpToPx(8);
+                keyBtn.setLayoutParams(kBp);
+                keyBtn.setOnClickListener(v -> {
+                    if (hasKey) {
+                        WearSyncManager.syncDigitalKey(this, dKey);
+                        Toast.makeText(this, "Dijital anahtar saate aktarılıyor... ⌚", Toast.LENGTH_SHORT).show();
                     } else {
                         showManageDigitalKeyDialog();
                     }
                 });
-                btnRow.addView(btnCopy);
+                card.addView(keyBtn);
 
-                Button btnManage = new Button(this);
-                btnManage.setText("Yönet / Ekle");
-                btnManage.setTextSize(12);
-                btnManage.setTextColor(getColor(R.color.accent_purple));
-                btnManage.setBackgroundResource(R.drawable.btn_outline);
-                LinearLayout.LayoutParams p2 = new LinearLayout.LayoutParams(0, dpToPx(38), 1.0f);
-                p2.leftMargin = dpToPx(4);
-                btnManage.setLayoutParams(p2);
-                btnManage.setOnClickListener(v -> showManageDigitalKeyDialog());
-                btnRow.addView(btnManage);
+                Button emotorBtn = new Button(this);
+                emotorBtn.setText("⚡ e-Motor (Sürüşe Hazır)");
+                emotorBtn.setTextColor(getColor(R.color.white));
+                emotorBtn.setBackgroundResource(R.drawable.btn_gradient);
+                emotorBtn.setTextSize(11);
+                LinearLayout.LayoutParams eLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dpToPx(36));
+                eLp.topMargin = dpToPx(6);
+                emotorBtn.setLayoutParams(eLp);
+                emotorBtn.setOnClickListener(v -> toggleReadyToDrive());
+                card.addView(emotorBtn);
 
-                card.addView(btnRow);
-                card.setOnClickListener(v -> selectTab(5));
+                card.setOnClickListener(v -> selectTab(4));
+                return card;
+            }
+            case CARD_TIRES: {
+                // Central + Axis Container
+                LinearLayout crossContainer = new LinearLayout(this);
+                crossContainer.setOrientation(LinearLayout.VERTICAL);
+                crossContainer.setGravity(Gravity.CENTER);
+                LinearLayout.LayoutParams crossLp = new LinearLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+                crossContainer.setLayoutParams(crossLp);
+                crossContainer.setPadding(0, dpToPx(8), 0, dpToPx(4));
+                crossContainer.setGravity(Gravity.CENTER);
+
+                // Front Tires Row (Above '+' axis)
+                LinearLayout frontRow = new LinearLayout(this);
+                frontRow.setOrientation(LinearLayout.HORIZONTAL);
+                frontRow.setGravity(Gravity.CENTER);
+
+                View flBox = buildTireSubBox("Sol Ön", t.getTirePressurePsiFL(), t.tireTempFL, t.tirePressureFL < 2.2);
+                View frBox = buildTireSubBox("Sağ Ön", t.getTirePressurePsiFR(), t.tireTempFR, t.tirePressureFR < 2.2);
+                frontRow.addView(flBox);
+
+                View frontGap = new View(this);
+                frontGap.setLayoutParams(new LinearLayout.LayoutParams(dpToPx(10), 1));
+                frontRow.addView(frontGap);
+                frontRow.addView(frBox);
+
+                crossContainer.addView(frontRow);
+
+                // Center '+' Axis Row
+                LinearLayout axisRow = new LinearLayout(this);
+                axisRow.setOrientation(LinearLayout.HORIZONTAL);
+                axisRow.setGravity(Gravity.CENTER);
+                axisRow.setPadding(0, dpToPx(2), 0, dpToPx(2));
+
+                View lineLeft = new View(this);
+                lineLeft.setBackgroundColor(getColor(R.color.divider));
+                lineLeft.setLayoutParams(new LinearLayout.LayoutParams(dpToPx(34), dpToPx(1.5f)));
+                axisRow.addView(lineLeft);
+
+                TextView plusTv = new TextView(this);
+                plusTv.setText("+");
+                plusTv.setTextColor(getColor(R.color.accent_togg));
+                plusTv.setTextSize(18);
+                plusTv.setTypeface(null, Typeface.BOLD);
+                plusTv.setPadding(dpToPx(8), 0, dpToPx(8), 0);
+                axisRow.addView(plusTv);
+
+                View lineRight = new View(this);
+                lineRight.setBackgroundColor(getColor(R.color.divider));
+                lineRight.setLayoutParams(new LinearLayout.LayoutParams(dpToPx(34), dpToPx(1.5f)));
+                axisRow.addView(lineRight);
+
+                crossContainer.addView(axisRow);
+
+                // Rear Tires Row (Below '+' axis)
+                LinearLayout rearRow = new LinearLayout(this);
+                rearRow.setOrientation(LinearLayout.HORIZONTAL);
+                rearRow.setGravity(Gravity.CENTER);
+
+                View rlBox = buildTireSubBox("Sol Arka", t.getTirePressurePsiRL(), t.tireTempRL, t.tirePressureRL < 2.2);
+                View rrBox = buildTireSubBox("Sağ Arka", t.getTirePressurePsiRR(), t.tireTempRR, t.tirePressureRR < 2.2);
+                rearRow.addView(rlBox);
+
+                View rearGap = new View(this);
+                rearGap.setLayoutParams(new LinearLayout.LayoutParams(dpToPx(10), 1));
+                rearRow.addView(rearGap);
+                rearRow.addView(rrBox);
+
+                crossContainer.addView(rearRow);
+
+                card.addView(crossContainer);
+
+                card.setOnClickListener(v -> selectTab(3));
                 return card;
             }
         }
         return null;
+    }
+
+    private View buildLocationCard(VehicleTelemetry t) {
+        LinearLayout card = new LinearLayout(this);
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        params.bottomMargin = dpToPx(14);
+        card.setLayoutParams(params);
+        card.setOrientation(LinearLayout.VERTICAL);
+        card.setBackgroundResource(R.drawable.card_bg);
+        card.setPadding(dpToPx(16), dpToPx(16), dpToPx(16), dpToPx(16));
+
+        TextView addrTv = new TextView(this);
+        String addr = (tvParkAddress != null && tvParkAddress.getText() != null && !tvParkAddress.getText().toString().isEmpty())
+                ? tvParkAddress.getText().toString()
+                : (t.parkAddress != null ? t.parkAddress : storage.getLastAddress());
+        if (addr == null || addr.isEmpty() || addr.contains("belirleniyor")) {
+            addr = storage.getLastAddress();
+        }
+        if (addr == null || addr.isEmpty()) {
+            addr = "Aracın konumu belirleniyor...";
+        }
+        addrTv.setText(addr);
+        addrTv.setTextColor(getColor(R.color.text_primary));
+        addrTv.setTextSize(14);
+        addrTv.setTypeface(null, Typeface.BOLD);
+        addrTv.setPadding(0, dpToPx(6), 0, dpToPx(2));
+        addrTv.setGravity(Gravity.CENTER);
+        addrTv.setLayoutParams(new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        card.addView(addrTv);
+
+        TextView durTv = new TextView(this);
+        durTv.setText(tvParkDuration != null ? tvParkDuration.getText() : "Park süresi hesaplanıyor...");
+        durTv.setTextColor(getColor(R.color.status_green));
+        durTv.setTextSize(11);
+        durTv.setPadding(0, 0, 0, dpToPx(6));
+        durTv.setGravity(Gravity.CENTER);
+        durTv.setLayoutParams(new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        card.addView(durTv);
+
+        // In-App Embedded Google Maps WebView
+        double lat = (t.latitude != 0.0) ? t.latitude : storage.getLastLat();
+        double lon = (t.longitude != 0.0) ? t.longitude : storage.getLastLon();
+        if (lat == 0.0 && lon == 0.0) {
+            lat = 39.925054;
+            lon = 32.834755;
+        }
+
+        WebView mapWebView = new WebView(this);
+        LinearLayout.LayoutParams mapLp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dpToPx(190));
+        mapLp.topMargin = dpToPx(4);
+        mapLp.bottomMargin = dpToPx(10);
+        mapWebView.setLayoutParams(mapLp);
+        mapWebView.setBackgroundResource(R.drawable.bg_map_frame);
+        mapWebView.setClipToOutline(true);
+
+        WebSettings ws = mapWebView.getSettings();
+        ws.setJavaScriptEnabled(true);
+        ws.setDomStorageEnabled(true);
+        ws.setDatabaseEnabled(true);
+        ws.setAllowContentAccess(true);
+        ws.setLoadsImagesAutomatically(true);
+
+        mapWebView.setWebViewClient(new WebViewClient() {
+            @Override
+            public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
+                if (request != null && request.getUrl() != null) {
+                    return handleExternalMapUrl(request.getUrl());
+                }
+                return false;
+            }
+
+            @Override
+            public boolean shouldOverrideUrlLoading(WebView view, String url) {
+                if (url != null) {
+                    return handleExternalMapUrl(Uri.parse(url));
+                }
+                return false;
+            }
+
+            @Override
+            public void onPageFinished(WebView view, String url) {
+                scheduleMapSnapshotCapture(mapWebView);
+            }
+
+            private boolean handleExternalMapUrl(Uri uri) {
+                String u = uri.toString();
+                if (!u.contains("output=embed") && !u.startsWith("data:")) {
+                    try {
+                        Intent intent = new Intent(Intent.ACTION_VIEW, uri);
+                        startActivity(intent);
+                        return true;
+                    } catch (Exception ignored) {}
+                }
+                return false;
+            }
+        });
+
+        mapWebView.setOnTouchListener((v, event) -> {
+            v.getParent().requestDisallowInterceptTouchEvent(true);
+            return false;
+        });
+
+        String mapHtml = "<!DOCTYPE html><html><head>"
+                + "<meta name='viewport' content='width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no'>"
+                + "<style>"
+                + "* { margin: 0; padding: 0; box-sizing: border-box; }"
+                + "html, body { width: 100%; height: 100%; overflow: hidden; background-color: #0F1724; font-family: -apple-system, sans-serif; }"
+                + ".map-wrap { width: 100%; height: 100%; position: relative; }"
+                + "iframe { width: 100%; height: 100%; border: none; border-radius: 12px; display: block; }"
+                + ".map-loader { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); color: #00C2D6; font-size: 13px; font-weight: bold; pointer-events: none; }"
+                + "</style>"
+                + "</head><body>"
+                + "<div class='map-wrap'>"
+                + "<div class='map-loader' id='loader'>📍 Harita Yükleniyor...</div>"
+                + "<iframe src='https://maps.google.com/maps?q=" + lat + "," + lon + "&amp;hl=tr&amp;z=16&amp;output=embed' allowfullscreen onload=\"var el=document.getElementById('loader');if(el)el.style.display='none';\"></iframe>"
+                + "</div></body></html>";
+
+        mapWebView.loadDataWithBaseURL("https://maps.google.com", mapHtml, "text/html", "UTF-8", null);
+        card.addView(mapWebView);
+        mapWebView.postDelayed(() -> scheduleMapSnapshotCapture(mapWebView), 2800);
+
+        Button navBtn = new Button(this);
+        navBtn.setText("🧭 Haritada Aracıma Yürü / Navigasyon");
+        navBtn.setTextColor(getColor(R.color.white));
+        navBtn.setBackgroundResource(R.drawable.btn_gradient);
+        navBtn.setTextSize(12);
+        navBtn.setLayoutParams(new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, dpToPx(40)));
+        navBtn.setOnClickListener(v -> openNavigationToCar());
+        card.addView(navBtn);
+
+        return card;
+    }
+
+    private void scheduleMapSnapshotCapture(final WebView mapWebView) {
+        if (mapWebView == null || isFinishing() || isDestroyed()) return;
+        int width = mapWebView.getWidth();
+        int height = mapWebView.getHeight();
+        if (width <= 0) width = dpToPx(320);
+        if (height <= 0) height = dpToPx(190);
+        final int captureWidth = width;
+        final int captureHeight = height;
+        Bitmap bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && mapWebView.isAttachedToWindow()
+                && mapWebView.getWindowVisibility() == View.VISIBLE) {
+            try {
+                int[] location = new int[2];
+                mapWebView.getLocationInWindow(location);
+                android.view.Window window = getWindow();
+                PixelCopy.request(window, new Rect(location[0], location[1], location[0] + captureWidth, location[1] + captureHeight), bitmap, result -> {
+                    if (result == PixelCopy.SUCCESS) saveWidgetMapSnapshot(bitmap);
+                    else drawAndSaveWidgetMapSnapshot(mapWebView, captureWidth, captureHeight);
+                }, new Handler(Looper.getMainLooper()));
+                return;
+                } catch (Throwable ignored) { }
+        }
+        drawAndSaveWidgetMapSnapshot(mapWebView, captureWidth, captureHeight);
+    }
+
+    private void drawAndSaveWidgetMapSnapshot(WebView mapWebView, int width, int height) {
+        Bitmap bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888);
+        mapWebView.draw(new Canvas(bitmap));
+        saveWidgetMapSnapshot(bitmap);
+    }
+
+    private void saveWidgetMapSnapshot(Bitmap bitmap) {
+        new Thread(() -> {
+            File file = new File(getFilesDir(), "widget_map_snapshot.png");
+            try (FileOutputStream stream = new FileOutputStream(file)) {
+                bitmap.compress(Bitmap.CompressFormat.PNG, 90, stream);
+                stream.flush();
+                runOnUiThread(() -> ToggAppWidgetProvider.updateAllWidgets(MainActivity.this));
+            } catch (Exception ignored) { }
+            finally { bitmap.recycle(); }
+        }, "WidgetMapSnapshot").start();
+    }
+
+    private TextView createIconHeader(String emoji) {
+        TextView tv = new TextView(this);
+        tv.setText(emoji);
+        tv.setTextSize(22);
+        tv.setPadding(0, 0, dpToPx(4), 0);
+        return tv;
+    }
+
+    private TextView createHeaderBadge(String badgeText, int colorResId) {
+        TextView tv = new TextView(this);
+        tv.setText(badgeText);
+        tv.setTextColor(getColor(colorResId));
+        tv.setTextSize(10);
+        tv.setTypeface(null, Typeface.BOLD);
+        tv.setBackgroundResource(R.drawable.badge_pill);
+        tv.setPadding(dpToPx(8), dpToPx(3), dpToPx(8), dpToPx(3));
+        return tv;
+    }
+
+    private View buildTireSubBox(String label, double psi, int temp, boolean isLow) {
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.setGravity(Gravity.CENTER);
+        box.setBackgroundResource(isLow ? R.drawable.tire_subcard_low : R.drawable.tire_subcard_bg);
+        box.setPadding(dpToPx(6), dpToPx(4), dpToPx(6), dpToPx(4));
+        box.setLayoutParams(new LinearLayout.LayoutParams(dpToPx(68), ViewGroup.LayoutParams.WRAP_CONTENT));
+
+        TextView posTv = new TextView(this);
+        posTv.setText(label);
+        posTv.setSingleLine(true);
+        posTv.setGravity(Gravity.CENTER);
+        posTv.setLayoutParams(new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        posTv.setTextSize(10);
+        posTv.setTextColor(getColor(isLow ? R.color.status_red : R.color.text_muted));
+        box.addView(posTv);
+
+        TextView valTv = new TextView(this);
+        valTv.setText(String.format(Locale.US, "%.1f", psi));
+        valTv.setTextSize(15);
+        valTv.setTypeface(null, Typeface.BOLD);
+        valTv.setTextColor(getColor(isLow ? R.color.status_red : R.color.text_primary));
+        valTv.setGravity(Gravity.CENTER);
+        valTv.setLayoutParams(new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        box.addView(valTv);
+
+        TextView tempTv = new TextView(this);
+        tempTv.setText(temp + "°C");
+        tempTv.setTextSize(10);
+        tempTv.setTextColor(getColor(R.color.text_muted));
+        tempTv.setGravity(Gravity.CENTER);
+        tempTv.setLayoutParams(new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        box.addView(tempTv);
+
+        return box;
     }
 
     private TextView createCardTitle(String titleText) {
@@ -1516,12 +2256,13 @@ public final class MainActivity extends Activity {
         List<CardItem> items = new ArrayList<>();
         for (String k : orderKeys) {
             String key = k.trim();
+            if (CARD_CONTROLS.equals(key) || CARD_CLIMATE.equals(key)) continue;
             String name = getCardDisplayName(key);
             if (name != null) {
                 items.add(new CardItem(key, name, visibleSet.contains(key)));
             }
         }
-        String[] allKeys = {CARD_BATTERY, CARD_CONTROLS, CARD_DRIVE, CARD_TIRES, CARD_LOCATION, CARD_CLIMATE, CARD_12V, CARD_DIGITAL_KEY};
+        String[] allKeys = {CARD_BATTERY, CARD_DRIVE, CARD_TIRES, CARD_LOCATION, CARD_12V};
         for (String ak : allKeys) {
             boolean exists = false;
             for (CardItem it : items) {
@@ -1642,13 +2383,10 @@ public final class MainActivity extends Activity {
     private String getCardDisplayName(String key) {
         switch (key) {
             case CARD_BATTERY: return "⚡ Yüksek Voltaj Batarya";
-            case CARD_CONTROLS: return "🎮 Hızlı Kontroller";
             case CARD_DRIVE: return "📊 Sürüş & Yolculuk";
             case CARD_TIRES: return "🛞 Lastik Basınçları (PSI)";
             case CARD_LOCATION: return "📍 Son Park Yeri & Konum";
-            case CARD_CLIMATE: return "❄️ İklimlendirme (HVAC)";
             case CARD_12V: return "🔋 12V Alçak Gerilim Aküsü";
-            case CARD_DIGITAL_KEY: return "🔑 Trumore Dijital Anahtar";
             default: return null;
         }
     }
@@ -1713,6 +2451,7 @@ public final class MainActivity extends Activity {
             }
             storage.setVin(newVin);
             storage.setDemoMode(false);
+            ToggAppWidgetProvider.updateAllWidgets(this);
             Toast.makeText(this, "Şasi numarası kaydedildi: " + newVin, Toast.LENGTH_SHORT).show();
             refreshTelemetry();
         });
@@ -1731,8 +2470,31 @@ public final class MainActivity extends Activity {
         Button btnToggLogout = dialogView.findViewById(R.id.btn_togg_logout);
         EditText etPlate = dialogView.findViewById(R.id.et_plate);
         EditText etVin = dialogView.findViewById(R.id.et_vin);
+        EditText etOwnerId = dialogView.findViewById(R.id.et_owner_id);
         EditText etToken = dialogView.findViewById(R.id.et_token);
         CheckBox cbDemoMode = dialogView.findViewById(R.id.cb_demo_mode);
+        TextView keyStatus = dialogView.findViewById(R.id.tv_settings_key_status);
+        Button manageKey = dialogView.findViewById(R.id.btn_settings_manage_key);
+        Button syncKey = dialogView.findViewById(R.id.btn_settings_sync_key);
+        RadioGroup themeGroup = dialogView.findViewById(R.id.rg_app_theme);
+        Button customizeCards = dialogView.findViewById(R.id.btn_settings_customize_cards);
+        if (customizeCards != null) customizeCards.setOnClickListener(v -> { dialogInstance.dismiss(); showCustomizeHomeDialog(); });
+        DigitalKey savedKey = new DigitalKeyManager(this).getActiveKey();
+        if (keyStatus != null) keyStatus.setText(savedKey != null && savedKey.isValid() ? "Kayıtlı anahtar: " + savedKey.getRemainingTimeDisplay() : "Anahtar Tanımsız");
+        if (manageKey != null) manageKey.setOnClickListener(v -> { dialogInstance.dismiss(); showManageDigitalKeyDialog(); });
+        if (syncKey != null) syncKey.setOnClickListener(v -> {
+            DigitalKey key = new DigitalKeyManager(this).getActiveKey();
+            if (key != null && key.isValid()) { WearSyncManager.syncDigitalKey(this, key); Toast.makeText(this, "Dijital anahtar saate aktarılıyor.", Toast.LENGTH_SHORT).show(); }
+            else Toast.makeText(this, "Önce dijital anahtar ekleyin.", Toast.LENGTH_SHORT).show();
+        });
+        if (themeGroup != null) {
+            String theme = storage.getAppTheme();
+            themeGroup.check("light".equals(theme) ? R.id.rb_theme_light : "dark".equals(theme) ? R.id.rb_theme_dark : R.id.rb_theme_system);
+            themeGroup.setOnCheckedChangeListener((group, checkedId) -> {
+                storage.setAppTheme(checkedId == R.id.rb_theme_light ? "light" : checkedId == R.id.rb_theme_dark ? "dark" : "system");
+                dialogInstance.dismiss(); recreate();
+            });
+        }
 
         boolean hasAuth = storage.hasValidToken();
         if (tvAuthStatus != null) {
@@ -1768,6 +2530,7 @@ public final class MainActivity extends Activity {
 
         etPlate.setText(storage.getPlate());
         etVin.setText(storage.getVin());
+        if (etOwnerId != null) etOwnerId.setText(storage.getOwnerId());
         etToken.setText(storage.getAccessToken());
         cbDemoMode.setChecked(storage.isDemoMode());
 
@@ -1785,15 +2548,28 @@ public final class MainActivity extends Activity {
 
             storage.setPlate(etPlate.getText().toString().trim());
             storage.setVin(etVin.getText().toString().trim());
+            if (etOwnerId != null) storage.setOwnerId(etOwnerId.getText().toString());
             if (!enteredToken.isEmpty()) {
                 storage.setAccessToken(enteredToken);
             }
             storage.setDemoMode(cbDemoMode.isChecked() || !storage.hasValidToken());
+            if (!storage.isDemoMode() && bleManager.isDemoConnected()) bleManager.disconnect();
+            ToggAppWidgetProvider.updateAllWidgets(this);
             refreshTelemetry();
         });
 
         dialogInstance.setButton(AlertDialog.BUTTON_NEGATIVE, getString(R.string.btn_cancel), (dialog, which) -> dialog.dismiss());
         dialogInstance.show();
+    }
+
+    private void applyThemeBeforeContent() {
+        String theme = storage.getAppTheme();
+        if ("light".equals(theme)) setTheme(R.style.Theme_ToggCompanion_Light);
+        else if ("dark".equals(theme)) setTheme(R.style.Theme_ToggCompanion_Dark);
+        else {
+            int night = getResources().getConfiguration().uiMode & android.content.res.Configuration.UI_MODE_NIGHT_MASK;
+            setTheme(night == android.content.res.Configuration.UI_MODE_NIGHT_YES ? R.style.Theme_ToggCompanion_Dark : R.style.Theme_ToggCompanion_Light);
+        }
     }
 
     private String formatSyncTime(long millis) {
@@ -1802,12 +2578,66 @@ public final class MainActivity extends Activity {
         return sdf.format(new Date(millis));
     }
 
+    private String formatTrumoreSyncTime(long millis) {
+        if (millis <= 0) return "--:--";
+        return new SimpleDateFormat("d MMMM yyyy - HH:mm", new Locale("tr", "TR")).format(new Date(millis));
+    }
+
+    private void showEditVehicleNameDialog() {
+        if (isFinishing() || isDestroyed()) return;
+
+        AlertDialog.Builder builder = new AlertDialog.Builder(this);
+        builder.setTitle("✏️ Araç İsmini Düzenle");
+        builder.setMessage("Ana sayfada görüntülenecek araç model veya isminizi giriniz:");
+
+        LinearLayout layout = new LinearLayout(this);
+        layout.setOrientation(LinearLayout.VERTICAL);
+        layout.setPadding(dpToPx(20), dpToPx(8), dpToPx(20), dpToPx(8));
+
+        final EditText etName = new EditText(this);
+        etName.setHint("Örn: Togg T10F Fastback");
+        etName.setText(storage.getVehicleName());
+        etName.setSelection(etName.getText().length());
+        etName.setSingleLine(true);
+        etName.setTextSize(16);
+        layout.addView(etName);
+
+        builder.setView(layout);
+        builder.setPositiveButton("Kaydet", (dialog, which) -> {
+            String newName = etName.getText().toString().trim();
+            if (newName.isEmpty()) newName = "Togg T10F Fastback";
+            storage.setVehicleName(newName);
+            ToggAppWidgetProvider.updateAllWidgets(this);
+            if (tvVehicleTitle != null) tvVehicleTitle.setText(newName);
+            Toast.makeText(this, "Araç ismi güncellendi: " + newName, Toast.LENGTH_SHORT).show();
+        });
+        builder.setNeutralButton("Varsayılana Sıfırla", (dialog, which) -> {
+            storage.setVehicleName("Togg T10F Fastback");
+            ToggAppWidgetProvider.updateAllWidgets(this);
+            if (tvVehicleTitle != null) tvVehicleTitle.setText("Togg T10F Fastback");
+            Toast.makeText(this, "Araç ismi varsayılana sıfırlandı", Toast.LENGTH_SHORT).show();
+        });
+        builder.setNegativeButton("İptal", null);
+        builder.show();
+    }
+
     private int dpToPx(int dp) {
         return (int) (dp * getResources().getDisplayMetrics().density);
     }
 
+    private int dpToPx(float dp) {
+        return Math.round(dp * getResources().getDisplayMetrics().density);
+    }
+
+    @Override
+    protected void onPause() {
+        ToggAppWidgetProvider.updateAllWidgets(this);
+        super.onPause();
+    }
+
     @Override
     protected void onDestroy() {
+        bleManager.removeListener(bleListener);
         if (instance == this) {
             instance = null;
         }

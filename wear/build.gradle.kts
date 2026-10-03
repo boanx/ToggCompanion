@@ -21,6 +21,7 @@ android {
 }
 
 dependencies {
+    implementation("androidx.security:security-crypto:1.1.0-alpha06")
     implementation("com.google.android.gms:play-services-wearable:18.2.0")
     implementation("androidx.wear:wear:1.3.0")
     implementation("androidx.wear.tiles:tiles:1.4.0")

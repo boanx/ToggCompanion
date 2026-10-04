@@ -1805,22 +1805,26 @@ public final class MainActivity extends Activity {
                 ClipData clip = clipboard.getPrimaryClip();
                 if (clip != null && clip.getItemCount() > 0) {
                     CharSequence candidate = clip.getItemAt(0).coerceToText(this);
-                    if (candidate != null && GezRouteBridge.parse(candidate.toString()) != null) initial = candidate.toString();
+                    if (candidate != null) initial = candidate.toString();
                 }
             }
         }
         if (initial != null) input.setText(initial);
-
         LinearLayout content = new LinearLayout(this);
         content.setOrientation(LinearLayout.VERTICAL);
         content.setPadding(dpToPx(20), dpToPx(8), dpToPx(20), 0);
         TextView explanation = new TextView(this);
-        explanation.setText("ABRP veya harita linkini yapıştırın. Trumore Gez açılacak ve 'Akıllı cihazıma aktar' butonu hazır çıkacaktır.");
+        explanation.setText("Harita bağlantısını veya adresi girin. Hedef çözümlendikten sonra akıllı cihazınıza aktarabilirsiniz.");
         content.addView(explanation);
         content.addView(input);
+        android.widget.ProgressBar progress = new android.widget.ProgressBar(this);
+        progress.setIndeterminate(true);
+        TextView status = new TextView(this);
+        content.addView(progress);
+        content.addView(status);
         LinearLayout quickButtons = new LinearLayout(this);
         Button paste = new Button(this);
-        paste.setText("📋 Panodan Yapıştır");
+        paste.setText("Panodan Yapıştır");
         paste.setOnClickListener(v -> {
             ClipboardManager clipboard = (ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
             if (clipboard != null && clipboard.hasPrimaryClip()) {
@@ -1837,27 +1841,48 @@ public final class MainActivity extends Activity {
             quickButtons.addView(vehicleLocation, new LinearLayout.LayoutParams(0, -2, 1));
         }
         content.addView(quickButtons);
-
+        Button resolveButton = new Button(this);
+        resolveButton.setText("Çözümle");
+        content.addView(resolveButton);
         AlertDialog dialog = new AlertDialog.Builder(this)
-                .setTitle("📍 Rota / Konumu Gez'e Aktar")
+                .setTitle("Rota / Konumu Akıllı Cihaza Aktar")
                 .setView(content)
                 .setNegativeButton("İptal", null)
-                .setPositiveButton("🚀 Trumore Gez'e Gönder", null)
+                .setPositiveButton("🚀 Akıllı Cihaza Aktar", null)
                 .create();
+        final GezRouteBridge.GezPoint[] resolved = new GezRouteBridge.GezPoint[1];
+        Runnable resolve = () -> {
+            resolved[0] = null;
+            progress.setVisibility(View.VISIBLE);
+            status.setText("Hedef adres ve koordinatlar çözümleniyor...");
+            GezRouteBridge.resolveAsync(this, input.getText().toString(), new GezRouteBridge.Callback() {
+                @Override public void onResolved(GezRouteBridge.GezPoint point) {
+                    if (!dialog.isShowing()) return;
+                    resolved[0] = point;
+                    progress.setVisibility(View.GONE);
+                    status.setText("📍 " + point.name + "\n🗺️ " + point.lat + ", " + point.lon);
+                    status.setTextColor(0xff2e7d32);
+                }
+                @Override public void onError(String error) {
+                    if (!dialog.isShowing()) return;
+                    progress.setVisibility(View.GONE);
+                    status.setText(error);
+                    status.setTextColor(0xffc62828);
+                }
+            });
+        };
+        resolveButton.setOnClickListener(v -> resolve.run());
         dialog.setOnShowListener(ignored -> dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
-            GezRouteBridge.GezPoint point = GezRouteBridge.parse(input.getText().toString());
-            if (point == null) {
-                Toast.makeText(this, "Geçerli bir koordinat veya harita linki bulunamadı.", Toast.LENGTH_LONG).show();
-                return;
-            }
+            GezRouteBridge.GezPoint point = resolved[0];
+            if (point == null) { resolve.run(); return; }
             if (GezRouteBridge.openInTrumore(this, point.lat, point.lon, point.name)) {
-                Toast.makeText(this, "Trumore Gez açılıyor... 'Akıllı cihazıma aktar' butonuna dokunun.", Toast.LENGTH_LONG).show();
+                Toast.makeText(this, "Trumore Gez açılıyor... Akıllı cihazınıza aktarılıyor.", Toast.LENGTH_LONG).show();
                 dialog.dismiss();
             } else Toast.makeText(this, "Trumore açılamadı.", Toast.LENGTH_LONG).show();
         }));
         dialog.show();
+        if (initial != null && !initial.trim().isEmpty()) resolve.run();
     }
-
     private void openAbrp() {
         Intent appIntent = getPackageManager().getLaunchIntentForPackage("com.iternio.abrpapp");
         if (appIntent == null) appIntent = getPackageManager().getLaunchIntentForPackage("com.iternio.abrp");

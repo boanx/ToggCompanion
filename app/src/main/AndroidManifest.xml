@@ -17,6 +17,7 @@
 
     <queries>
         <package android:name="com.togg.toggmobile" />
+        <package android:name="com.togg.trumore" />
     </queries>
 
     <application

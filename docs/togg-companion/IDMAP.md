@@ -66,6 +66,8 @@ Implemented native Android companion phone application (`app/`) and Wear OS Gala
 - `F58` = `app/src/main/java/com/togg/companion/data/remote/AbrpClient.java`
 - `F59` = `app/src/main/java/com/togg/companion/service/AbrpJobService.java`
 - `F60` = `app/src/test/java/com/togg/companion/data/remote/AbrpClientTest.java`
+- `F61` = `app/src/main/java/com/togg/companion/core/GezRouteBridge.java`
+- `F62` = `app/src/test/java/com/togg/companion/core/GezRouteBridgeTest.java`
 
 ## Entity IDs
 
@@ -92,6 +94,8 @@ Implemented native Android companion phone application (`app/`) and Wear OS Gala
 - `C7` = Vehicle BLE connection and command feedback boundary
 - `C8` = ABRP telemetry client, secure preferences, and periodic background sync
 - `T4` = ABRP telemetry JSON unit tests
+- `C9` = Trumore Gez route parsing and deep link dispatch
+- `T5` = Gez route bridge unit tests
 
 ## Predicate vocabulary
 

@@ -12,6 +12,8 @@ import android.os.Handler;
 import android.os.Looper;
 import android.content.Intent;
 import android.content.ComponentName;
+import android.content.ClipboardManager;
+import android.content.ClipData;
 import android.graphics.Typeface;
 import android.graphics.Bitmap;
 import android.graphics.Canvas;
@@ -61,6 +63,7 @@ import androidx.swiperefreshlayout.widget.SwipeRefreshLayout;
 
 import com.togg.companion.R;
 import com.togg.companion.core.DigitalKey;
+import com.togg.companion.core.GezRouteBridge;
 import com.togg.companion.core.DigitalKeyManager;
 import com.togg.companion.core.TelemetryParser;
 import com.togg.companion.core.TrumoreBridge;
@@ -260,6 +263,7 @@ public final class MainActivity extends Activity {
         refreshTelemetry();
 
         handleDigitalKeyIntent(getIntent());
+        handleGezShareIntent(getIntent());
     }
 
     @Override
@@ -269,6 +273,14 @@ public final class MainActivity extends Activity {
         if (intent != null && ACTION_WIDGET_REFRESH.equals(intent.getAction())) refreshTelemetry();
         handleActionIntent(intent);
         handleDigitalKeyIntent(intent);
+        handleGezShareIntent(intent);
+    }
+
+    private void handleGezShareIntent(Intent intent) {
+        if (intent != null && Intent.ACTION_SEND.equals(intent.getAction())) {
+            String sharedText = intent.getStringExtra(Intent.EXTRA_TEXT);
+            if (sharedText != null && !sharedText.trim().isEmpty()) showSendToGezDialog(sharedText);
+        }
     }
 
     @Override
@@ -1770,7 +1782,80 @@ public final class MainActivity extends Activity {
         buttons.addView(send, new LinearLayout.LayoutParams(0, dpToPx(44), 1));
         buttons.addView(open, new LinearLayout.LayoutParams(0, dpToPx(44), 1));
         buttons.addView(settings, new LinearLayout.LayoutParams(0, dpToPx(44), 1));
+
+        Button sendToGez = new Button(this);
+        sendToGez.setText("📍 Gez'e / Araca Rota Aktar");
+        sendToGez.setBackgroundResource(R.drawable.btn_gradient);
+        sendToGez.setTextColor(getColor(android.R.color.white));
+        sendToGez.setTypeface(null, Typeface.BOLD);
+        LinearLayout.LayoutParams gezParams = new LinearLayout.LayoutParams(-1, dpToPx(44));
+        gezParams.topMargin = dpToPx(10);
+        card.addView(sendToGez, gezParams);
+        sendToGez.setOnClickListener(v -> showSendToGezDialog(null));
         return card;
+    }
+
+    private void showSendToGezDialog(String prefill) {
+        EditText input = new EditText(this);
+        input.setHint("ABRP / Google Maps linki veya koordinat");
+        String initial = prefill;
+        if (initial == null || initial.trim().isEmpty()) {
+            ClipboardManager clipboard = (ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
+            if (clipboard != null && clipboard.hasPrimaryClip()) {
+                ClipData clip = clipboard.getPrimaryClip();
+                if (clip != null && clip.getItemCount() > 0) {
+                    CharSequence candidate = clip.getItemAt(0).coerceToText(this);
+                    if (candidate != null && GezRouteBridge.parse(candidate.toString()) != null) initial = candidate.toString();
+                }
+            }
+        }
+        if (initial != null) input.setText(initial);
+
+        LinearLayout content = new LinearLayout(this);
+        content.setOrientation(LinearLayout.VERTICAL);
+        content.setPadding(dpToPx(20), dpToPx(8), dpToPx(20), 0);
+        TextView explanation = new TextView(this);
+        explanation.setText("ABRP veya harita linkini yapıştırın. Trumore Gez açılacak ve 'Akıllı cihazıma aktar' butonu hazır çıkacaktır.");
+        content.addView(explanation);
+        content.addView(input);
+        LinearLayout quickButtons = new LinearLayout(this);
+        Button paste = new Button(this);
+        paste.setText("📋 Panodan Yapıştır");
+        paste.setOnClickListener(v -> {
+            ClipboardManager clipboard = (ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
+            if (clipboard != null && clipboard.hasPrimaryClip()) {
+                ClipData clip = clipboard.getPrimaryClip();
+                if (clip != null && clip.getItemCount() > 0) input.setText(clip.getItemAt(0).coerceToText(this));
+            }
+        });
+        quickButtons.addView(paste, new LinearLayout.LayoutParams(0, -2, 1));
+        VehicleTelemetry telemetry = currentTelemetry;
+        if (telemetry != null && (telemetry.latitude != 0 || telemetry.longitude != 0)) {
+            Button vehicleLocation = new Button(this);
+            vehicleLocation.setText("Aracın Konumu");
+            vehicleLocation.setOnClickListener(v -> input.setText(telemetry.latitude + ", " + telemetry.longitude));
+            quickButtons.addView(vehicleLocation, new LinearLayout.LayoutParams(0, -2, 1));
+        }
+        content.addView(quickButtons);
+
+        AlertDialog dialog = new AlertDialog.Builder(this)
+                .setTitle("📍 Rota / Konumu Gez'e Aktar")
+                .setView(content)
+                .setNegativeButton("İptal", null)
+                .setPositiveButton("🚀 Trumore Gez'e Gönder", null)
+                .create();
+        dialog.setOnShowListener(ignored -> dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
+            GezRouteBridge.GezPoint point = GezRouteBridge.parse(input.getText().toString());
+            if (point == null) {
+                Toast.makeText(this, "Geçerli bir koordinat veya harita linki bulunamadı.", Toast.LENGTH_LONG).show();
+                return;
+            }
+            if (GezRouteBridge.openInTrumore(this, point.lat, point.lon, point.name)) {
+                Toast.makeText(this, "Trumore Gez açılıyor... 'Akıllı cihazıma aktar' butonuna dokunun.", Toast.LENGTH_LONG).show();
+                dialog.dismiss();
+            } else Toast.makeText(this, "Trumore açılamadı.", Toast.LENGTH_LONG).show();
+        }));
+        dialog.show();
     }
 
     private void openAbrp() {

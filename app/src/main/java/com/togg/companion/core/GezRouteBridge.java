@@ -15,6 +15,8 @@ import java.net.URLDecoder;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.regex.Matcher;
@@ -43,7 +45,13 @@ public final class GezRouteBridge {
         public final double lat;
         public final double lon;
         public final String name;
-        private GezPoint(double lat, double lon, String name) { this.lat = lat; this.lon = lon; this.name = name; }
+        public final List<GezPoint> stops;
+        public GezPoint(double lat, double lon, String name) { this(lat, lon, name, null); }
+        public GezPoint(double lat, double lon, String name, List<GezPoint> stops) {
+            this.lat = lat; this.lon = lon; this.name = name;
+            this.stops = stops != null ? Collections.unmodifiableList(new ArrayList<>(stops)) : Collections.emptyList();
+        }
+        public boolean hasMultipleStops() { return stops.size() > 1; }
     }
 
     public static GezPoint parseDirect(String text) {
@@ -62,13 +70,8 @@ public final class GezRouteBridge {
         Matcher dirs = DIRECTIONS.matcher(url);
         if (dirs.find()) {
             String[] segments = dirs.group(1).split("/");
-            for (int i = segments.length - 1; i >= 0; i--) {
-                String segment = segments[i];
-                if (segment.isEmpty() || segment.startsWith("data=") || segment.startsWith("am=")) continue;
-                Matcher c = COORDINATES.matcher(segment);
-                if (c.matches()) return point(c.group(1), c.group(2), null);
-                break;
-            }
+            List<GezPoint> stops = parseDirectionStops(segments);
+            if (!stops.isEmpty()) return destinationWithStops(stops);
         }
         String[] match = lastMatch(DATA_COORD, url);
         return match == null ? null : point(match[0], match[1], null);
@@ -87,13 +90,19 @@ public final class GezRouteBridge {
             Matcher dirs = DIRECTIONS.matcher(url);
             if (dirs.find()) {
                 String[] segments = dirs.group(1).split("/");
+                List<GezPoint> stops = parseDirectionStops(segments);
+                if (!stops.isEmpty()) {
+                    List<GezPoint> resolvedStops = new ArrayList<>();
+                    for (int i = 0; i < stops.size(); i++) {
+                        GezPoint stop = stops.get(i);
+                        resolvedStops.add(withResolvedName(context, stop));
+                    }
+                    return destinationWithStops(resolvedStops);
+                }
                 for (int i = segments.length - 1; i >= 0; i--) {
                     String segment = segments[i];
                     if (segment.isEmpty() || segment.startsWith("data=") || segment.startsWith("am=")) continue;
-                    Matcher coords = COORDINATES.matcher(segment);
-                    if (coords.matches()) return withResolvedName(context, point(coords.group(1), coords.group(2), null));
-                    name = decode(segment);
-                    break;
+                    name = decode(segment); break;
                 }
             }
             String[] match = lastMatch(DATA_COORD, url);
@@ -177,6 +186,19 @@ public final class GezRouteBridge {
             if (lat < -90 || lat > 90 || lon < -180 || lon > 180) return null;
             return new GezPoint(lat, lon, name);
         } catch (NumberFormatException e) { return null; }
+    }
+    private static List<GezPoint> parseDirectionStops(String[] segments) {
+        List<GezPoint> stops = new ArrayList<>();
+        for (String segment : segments) {
+            if (segment.isEmpty() || segment.startsWith("data=") || segment.startsWith("am=")) continue;
+            Matcher coords = COORDINATES.matcher(segment);
+            if (coords.matches()) { GezPoint p = point(coords.group(1), coords.group(2), null); if (p != null) stops.add(p); }
+        }
+        return stops;
+    }
+    private static GezPoint destinationWithStops(List<GezPoint> stops) {
+        GezPoint last = stops.get(stops.size() - 1);
+        return new GezPoint(last.lat, last.lon, last.name, stops);
     }
     private static String[] firstMatch(Pattern p, String s) {
         Matcher m = p.matcher(s);

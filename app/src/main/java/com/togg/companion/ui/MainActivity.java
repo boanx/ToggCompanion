@@ -1822,6 +1822,16 @@ public final class MainActivity extends Activity {
         TextView status = new TextView(this);
         content.addView(progress);
         content.addView(status);
+        TextView routeTitle = new TextView(this);
+        routeTitle.setTypeface(null, Typeface.BOLD);
+        content.addView(routeTitle);
+        LinearLayout stopList = new LinearLayout(this);
+        stopList.setOrientation(LinearLayout.VERTICAL);
+        content.addView(stopList);
+        TextView bridgeNote = new TextView(this);
+        bridgeNote.setText("ℹ️ Araç navigasyonuna aktarım Togg Trumore Güvenli Köprüsü üzerinden gerçekleştirilmektedir.");
+        bridgeNote.setVisibility(View.GONE);
+        content.addView(bridgeNote);
         LinearLayout quickButtons = new LinearLayout(this);
         Button paste = new Button(this);
         paste.setText("Panodan Yapıştır");
@@ -1848,9 +1858,10 @@ public final class MainActivity extends Activity {
                 .setTitle("Rota / Konumu Akıllı Cihaza Aktar")
                 .setView(content)
                 .setNegativeButton("İptal", null)
-                .setPositiveButton("🚀 Akıllı Cihaza Aktar", null)
+                .setPositiveButton("🚀 Varış Noktasını Aktar", null)
                 .create();
         final GezRouteBridge.GezPoint[] resolved = new GezRouteBridge.GezPoint[1];
+        final int[] selectedStop = {-1};
         Runnable resolve = () -> {
             resolved[0] = null;
             progress.setVisibility(View.VISIBLE);
@@ -1859,6 +1870,31 @@ public final class MainActivity extends Activity {
                 @Override public void onResolved(GezRouteBridge.GezPoint point) {
                     if (!dialog.isShowing()) return;
                     resolved[0] = point;
+                    stopList.removeAllViews();
+                    routeTitle.setVisibility(point.hasMultipleStops() ? View.VISIBLE : View.GONE);
+                    bridgeNote.setVisibility(point.hasMultipleStops() ? View.VISIBLE : View.GONE);
+                    selectedStop[0] = point.hasMultipleStops() ? point.stops.size() - 1 : -1;
+                    if (point.hasMultipleStops()) {
+                        routeTitle.setText("📍 Çoklu Duraklı Rota (" + point.stops.size() + " Durak):");
+                        for (int i = 0; i < point.stops.size(); i++) {
+                            final int index = i;
+                            GezRouteBridge.GezPoint stop = point.stops.get(i);
+                            String label = i == 0 ? "🚩 Başlangıç (1. Durak)" : i == point.stops.size() - 1 ? "🏁 Varış Hedefi" : "🛑 Ara Duraklar (" + (i + 1) + ". Durak)";
+                            LinearLayout row = new LinearLayout(MainActivity.this);
+                            row.setGravity(Gravity.CENTER_VERTICAL);
+                            TextView details = new TextView(MainActivity.this);
+                            details.setText(label + "\n" + (stop.name == null ? "Durak" : stop.name) + " · " + stop.lat + ", " + stop.lon);
+                            row.addView(details, new LinearLayout.LayoutParams(0, -2, 1));
+                            Button choose = new Button(MainActivity.this);
+                            choose.setText("Aktar");
+                            choose.setOnClickListener(view -> {
+                                selectedStop[0] = index;
+                                dialog.getButton(AlertDialog.BUTTON_POSITIVE).setText(index == point.stops.size() - 1 ? "🚀 Varış Noktasını Aktar" : "🚀 Seçili Durağı Aktar");
+                            });
+                            row.addView(choose);
+                            stopList.addView(row);
+                        }
+                    }
                     progress.setVisibility(View.GONE);
                     status.setText("📍 " + point.name + "\n🗺️ " + point.lat + ", " + point.lon);
                     status.setTextColor(0xff2e7d32);
@@ -1875,7 +1911,8 @@ public final class MainActivity extends Activity {
         dialog.setOnShowListener(ignored -> dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
             GezRouteBridge.GezPoint point = resolved[0];
             if (point == null) { resolve.run(); return; }
-            if (GezRouteBridge.openInTrumore(this, point.lat, point.lon, point.name)) {
+            GezRouteBridge.GezPoint target = selectedStop[0] >= 0 ? point.stops.get(selectedStop[0]) : point;
+            if (GezRouteBridge.openInTrumore(this, target.lat, target.lon, target.name)) {
                 Toast.makeText(this, "Trumore Gez açılıyor... Akıllı cihazınıza aktarılıyor.", Toast.LENGTH_LONG).show();
                 dialog.dismiss();
             } else Toast.makeText(this, "Trumore açılamadı.", Toast.LENGTH_LONG).show();

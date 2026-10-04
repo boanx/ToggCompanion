@@ -823,28 +823,55 @@ public final class MainActivity extends Activity {
     }
 
     private void showBleConnectionDialog() {
-        boolean needsPermission = Build.VERSION.SDK_INT >= 31 && !bleManager.hasConnectPermission();
-        List<BluetoothDevice> devices = needsPermission ? new ArrayList<>() : bleManager.getPairedToggDevices();
+        boolean needsPermission = Build.VERSION.SDK_INT >= 31 && (!bleManager.hasConnectPermission()
+                || checkSelfPermission(Manifest.permission.BLUETOOTH_SCAN) != PackageManager.PERMISSION_GRANTED);
+        if (needsPermission) {
+            new AlertDialog.Builder(this).setTitle("Bluetooth İzni Gerekli")
+                    .setMessage("Eşleşmiş cihazları görmek ve BLE taraması için Bluetooth izinleri gerekli.")
+                    .setPositiveButton("Bluetooth İzinlerini Ver", (d, w) -> requestPermissions(
+                            new String[]{Manifest.permission.BLUETOOTH_CONNECT, Manifest.permission.BLUETOOTH_SCAN}, 301))
+                    .setNegativeButton("İptal", null).show();
+            return;
+        }
+        List<BluetoothDevice> devices = bleManager.getPairedToggDevices();
+        List<BluetoothDevice> allDevices = bleManager.getAllPairedDevices();
+        List<BluetoothDevice> otherDevices = new ArrayList<>();
         List<String> options = new ArrayList<>();
-        for (BluetoothDevice device : devices) options.add(device.getName());
-        if (needsPermission) options.add("Bluetooth izni ver");
-        if (storage.isDemoMode()) options.add("Demo BLE bağlantısı");
-        if (bleManager.isConnected()) options.add("Bağlantıyı kes");
-        if (options.isEmpty()) options.add("Eşleşmiş Togg cihazı bulunamadı");
+        for (BluetoothDevice device : devices) options.add(device.getName() + (bleManager.isDeviceConnected(device) ? " 🟢 [Bağlı]" : " [Eşleşmiş]"));
+        int scanIndex = options.size(); options.add("🔍 Çevredeki BLE Cihazlarını Tara");
+        for (BluetoothDevice device : allDevices) if (!devices.contains(device)) otherDevices.add(device);
+        int otherIndex = -1;
+        if (!otherDevices.isEmpty()) { otherIndex = options.size(); options.add("📱 Diğer Eşleşmiş Bluetooth Cihazları"); }
+        int demoIndex = -1;
+        if (storage.isDemoMode()) { demoIndex = options.size(); options.add("Demo BLE Bağlantısı"); }
+        int disconnectIndex = -1;
+        if (bleManager.isConnected()) { disconnectIndex = options.size(); options.add("Bağlantıyı Kes"); }
+        int openIndex = -1;
+        if (!bleManager.isBluetoothEnabled()) { openIndex = options.size(); options.add("Bluetooth'u Aç"); }
+        final int pairedCount = devices.size(), scanChoice = scanIndex, othersChoice = otherIndex;
+        final int demoChoice = demoIndex, disconnectChoice = disconnectIndex, openChoice = openIndex;
         new AlertDialog.Builder(this).setTitle("Araç Bluetooth Bağlantısı")
                 .setItems(options.toArray(new String[0]), (dialog, which) -> {
-                    if (which < devices.size()) {
-                        if (!bleManager.isBluetoothEnabled()) {
-                            Toast.makeText(this, "Bluetooth'u açın ve tekrar deneyin.", Toast.LENGTH_LONG).show();
-                        } else bleManager.connectToVehicle(this, devices.get(which));
-                    } else if (needsPermission && which == devices.size()) {
-                        requestPermissions(new String[]{Manifest.permission.BLUETOOTH_CONNECT}, 301);
-                    } else if (storage.isDemoMode() && which == devices.size() + (needsPermission ? 1 : 0)) {
-                        bleManager.setDemoConnected(true);
-                    } else if (bleManager.isConnected()) bleManager.disconnect();
+                    if (which < pairedCount) bleManager.connectToVehicle(this, devices.get(which));
+                    else if (which == scanChoice) {
+                        Toast.makeText(this, "Çevredeki Togg BLE cihazları taranıyor...", Toast.LENGTH_SHORT).show();
+                        bleManager.scanForToggDevices(found -> {
+                            List<String> names = new ArrayList<>();
+                            for (BluetoothDevice item : found) names.add(item.getName() == null ? item.getAddress() : item.getName());
+                            if (names.isEmpty()) { Toast.makeText(this, "Togg BLE cihazı bulunamadı.", Toast.LENGTH_SHORT).show(); return; }
+                            new AlertDialog.Builder(this).setTitle("Bulunan Togg BLE Cihazları").setItems(names.toArray(new String[0]),
+                                    (d, choice) -> bleManager.connectToVehicle(this, found.get(choice))).setNegativeButton("İptal", null).show();
+                        });
+                    } else if (which == othersChoice) {
+                        List<String> names = new ArrayList<>();
+                        for (BluetoothDevice item : otherDevices) names.add(item.getName() + (bleManager.isDeviceConnected(item) ? " 🟢 [Bağlı]" : " [Eşleşmiş]"));
+                        new AlertDialog.Builder(this).setTitle("Eşleşmiş Bluetooth Cihazları").setItems(names.toArray(new String[0]),
+                                (d, choice) -> bleManager.connectToVehicle(this, otherDevices.get(choice))).setNegativeButton("İptal", null).show();
+                    } else if (which == demoChoice) bleManager.setDemoConnected(true);
+                    else if (which == disconnectChoice) bleManager.disconnect();
+                    else if (which == openChoice) startActivity(new Intent(android.provider.Settings.ACTION_BLUETOOTH_SETTINGS));
                 }).setNegativeButton("İptal", null).show();
-    }
-    @Override
+    }    @Override
     public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
         if (requestCode == 301 && grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {

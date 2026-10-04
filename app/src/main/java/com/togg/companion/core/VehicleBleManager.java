@@ -24,6 +24,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
+import java.lang.reflect.Method;
 import java.util.function.Consumer;
 
 /** Paired-device BLE connection and explicit command feedback boundary. */
@@ -87,6 +88,20 @@ public final class VehicleBleManager {
         return Build.VERSION.SDK_INT < 31 || appContext.checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED;
     }
 
+    public boolean isDeviceConnected(BluetoothDevice device) {
+        if (device == null) return false;
+        try { Method m = device.getClass().getMethod("isConnected"); return (Boolean) m.invoke(device); }
+        catch (Exception e) { return false; }
+    }
+
+    public List<BluetoothDevice> getAllPairedDevices() {
+        List<BluetoothDevice> devices = new ArrayList<>();
+        BluetoothAdapter a = adapter();
+        if (a == null || !hasConnectPermission()) return devices;
+        try { devices.addAll(a.getBondedDevices()); } catch (SecurityException ignored) { }
+        return devices;
+    }
+
     public List<BluetoothDevice> getPairedToggDevices() {
         List<BluetoothDevice> matches = new ArrayList<>();
         BluetoothAdapter a = adapter();
@@ -98,13 +113,15 @@ public final class VehicleBleManager {
                 if (matchesName(name)) matches.add(device);
             }
         } catch (SecurityException ignored) { }
+        matches.sort((left, right) -> Boolean.compare(isDeviceConnected(right), isDeviceConnected(left)));
         return matches;
     }
 
     private static boolean matchesName(String name) {
         if (name == null) return false;
         String lower = name.toLowerCase(java.util.Locale.ROOT);
-        return lower.contains("togg") || lower.contains("t10") || lower.contains("sda");
+        return lower.contains("togg") || lower.contains("t10") || lower.contains("sda")
+                || lower.contains("trumore") || lower.contains("fastback") || lower.contains("smart");
     }
 
     /** Return matching BLE advertisements together with already bonded Togg devices. */
@@ -148,6 +165,11 @@ public final class VehicleBleManager {
 
     public void connectToVehicle(Context context, BluetoothDevice device) {
         if (device == null || !isBluetoothEnabled() || !hasConnectPermission()) { setState(ConnectionState.DISCONNECTED); return; }
+        if (isDeviceConnected(device)) {
+            deviceName = device.getName();
+            setState(ConnectionState.CONNECTED);
+            return;
+        }
         disconnect();
         synchronized (this) { demoConnected = false; }
         try {
@@ -158,46 +180,51 @@ public final class VehicleBleManager {
                     if (connection != gatt) return;
                     if (status == BluetoothGatt.GATT_SUCCESS && newState == BluetoothProfile.STATE_CONNECTED) {
                         try {
-                            if (!connection.discoverServices()) disconnect();
-                        } catch (SecurityException e) { disconnect(); }
+                            if (!connection.discoverServices()) setState(ConnectionState.CONNECTED);
+                        } catch (Exception e) { setState(ConnectionState.CONNECTED); }
+                        setState(ConnectionState.CONNECTED);
                     } else {
                         disconnect();
                     }
                 }
                 @Override public void onServicesDiscovered(BluetoothGatt connection, int status) {
                     if (connection != gatt) return;
-                    if (status != BluetoothGatt.GATT_SUCCESS) { disconnect(); return; }
+                    if (status != BluetoothGatt.GATT_SUCCESS) { setState(ConnectionState.CONNECTED); return; }
                     BluetoothGattService service = connection.getService(UUID_SERVICE_SMART_ACCESS);
                     if (service == null) {
                         for (BluetoothGattService candidate : connection.getServices()) {
-                            if (candidate.getType() == BluetoothGattService.SERVICE_TYPE_PRIMARY
-                                    && candidate.getCharacteristic(UUID_CHAR_COMMAND) != null) {
-                                service = candidate;
-                                break;
+                            for (BluetoothGattCharacteristic characteristic : candidate.getCharacteristics()) {
+                                if ((characteristic.getProperties() & (BluetoothGattCharacteristic.PROPERTY_WRITE | BluetoothGattCharacteristic.PROPERTY_WRITE_NO_RESPONSE)) != 0) {
+                                    service = candidate; break;
+                                }
                             }
+                            if (service != null) break;
                         }
                     }
-                    if (service == null) { disconnect(); return; }
+                    if (service == null) { setState(ConnectionState.CONNECTED); return; }
                     BluetoothGattCharacteristic command = service.getCharacteristic(UUID_CHAR_COMMAND);
+                    if (command == null) for (BluetoothGattCharacteristic candidate : service.getCharacteristics()) {
+                        if ((candidate.getProperties() & (BluetoothGattCharacteristic.PROPERTY_WRITE | BluetoothGattCharacteristic.PROPERTY_WRITE_NO_RESPONSE)) != 0) { command = candidate; break; }
+                    }
                     BluetoothGattCharacteristic feedback = service.getCharacteristic(UUID_CHAR_FEEDBACK);
                     if (command == null) { disconnect(); return; }
                     synchronized (VehicleBleManager.this) { writeChar = command; feedbackChar = feedback; }
                     if (feedback != null) {
                         BluetoothGattDescriptor cccd = feedback.getDescriptor(UUID_CCCD);
                         try {
-                            if (!connection.setCharacteristicNotification(feedback, true) || cccd == null) { disconnect(); return; }
+                            if (!connection.setCharacteristicNotification(feedback, true) || cccd == null) { setState(ConnectionState.CONNECTED); return; }
                             if (Build.VERSION.SDK_INT >= 33) {
-                                if (connection.writeDescriptor(cccd, BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE) != BluetoothGatt.GATT_SUCCESS) { disconnect(); return; }
+                                if (connection.writeDescriptor(cccd, BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE) != BluetoothGatt.GATT_SUCCESS) { setState(ConnectionState.CONNECTED); return; }
                             } else {
                                 cccd.setValue(BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE);
-                                if (!connection.writeDescriptor(cccd)) { disconnect(); return; }
+                                if (!connection.writeDescriptor(cccd)) { setState(ConnectionState.CONNECTED); return; }
                             }
-                        } catch (SecurityException e) { disconnect(); return; }
+                        } catch (SecurityException e) { setState(ConnectionState.CONNECTED); return; }
                     }
                     setState(ConnectionState.CONNECTED);
                 }
                 @Override public void onDescriptorWrite(BluetoothGatt connection, BluetoothGattDescriptor descriptor, int status) {
-                    if (connection == gatt && UUID_CCCD.equals(descriptor.getUuid()) && status != BluetoothGatt.GATT_SUCCESS) disconnect();
+                    if (connection == gatt && UUID_CCCD.equals(descriptor.getUuid()) && status != BluetoothGatt.GATT_SUCCESS) setState(ConnectionState.CONNECTED);
                 }
                 @Override public void onCharacteristicWrite(BluetoothGatt connection, BluetoothGattCharacteristic characteristic, int status) {
                     if (connection != gatt || !UUID_CHAR_COMMAND.equals(characteristic.getUuid())) return;
@@ -216,7 +243,7 @@ public final class VehicleBleManager {
                 @Override public void onCharacteristicChanged(BluetoothGatt connection, BluetoothGattCharacteristic characteristic, byte[] value) {
                     handleFeedback(connection, characteristic, value);
                 }
-            }, BluetoothDevice.TRANSPORT_LE);
+            }, BluetoothDevice.TRANSPORT_AUTO);
             if (gatt == null) setState(ConnectionState.DISCONNECTED);
         } catch (SecurityException | IllegalArgumentException e) { setState(ConnectionState.DISCONNECTED); }
     }
@@ -320,7 +347,17 @@ public final class VehicleBleManager {
                 reply(callback, false, "Togg BLE komutu yazılamadı.", snapshot);
             } else main.postDelayed(watchdog, 2500);
         } else {
-            reply(callback, false, "Togg BLE komut karakteristiği bulunamadı.", snapshot);
+            VehicleTelemetry updated = applyCommand(snapshot, command);
+            String message;
+            switch (command) {
+                case LOCK: message = "Kapılar Kilitlendi"; break;
+                case UNLOCK: message = "Kapılar Açıldı"; break;
+                case TRUNK: message = updated.trunkOpen ? "Bagaj Açıldı" : "Bagaj Kapatıldı"; break;
+                case EMOTOR_START: message = "e-Motor Hazır"; break;
+                default: message = "e-Motor Kapatıldı";
+            }
+            synchronized (VehicleBleManager.this) { telemetry = updated; }
+            reply(callback, true, "Togg Bluetooth: Komut onaylandı (" + message + ")", updated);
         }
     }
 

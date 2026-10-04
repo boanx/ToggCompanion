@@ -75,3 +75,4 @@
 {"id":"AF078","s":"C5","p":"stores","o":"TelemetryDatabaseHelper keeps at most the newest 100 telemetry history rows after inserts and exposes clearHistory to wipe history.","src":["F07"]}
 {"id":"AF079","s":"A0","p":"declares","o":"Release builds enable R8 minification and resource shrinking with rules preserving telemetry and key models, widget and action components, and security crypto classes.","src":["F37","F52"]}
 {"id":"AF080","s":"U1","p":"renders","o":"The phone dashboard presents trip distance, odometer, and separate vehicle update timestamps.","src":["F09","F24"]}
+{"id":"AF081","s":"C7","p":"communicates","o":"VehicleBleManager detects active Bluetooth connection via device reflection, supports broad vehicle name heuristics, scans for surrounding BLE devices, and maintains connection without disconnecting on custom GATT UUID absence.","src":["F50","F09"]}

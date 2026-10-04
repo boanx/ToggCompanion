@@ -29,19 +29,4 @@ Samsung Galaxy Watch için sıfırdan tasarlanan minimal, saf AMOLED siyah zemin
 - **Companion Bluetooth Senkronizasyonu:** Saatte oturum veya token girmeye gerek kalmaz; telefonunuz Bluetooth üzerinden verileri arka planda aktarır.
 - **🔄 Dokunmatik Senkronizasyon & Haptik Titreşim:** Saat üzerinden anında telefondan canlı veri talep edilebilir.
 
----
-
-## 📱 Kurulum Dosyaları (APK)
-
-1. **Telefon Uygulaması:**
-   - Dosya Yolu: `C:\Users\aozyurt\Documents\AG\T10F_Asistan.apk`
-   - Galaxy telefonunuza yükleyip kurun.
-
-2. **Samsung Galaxy Watch Uygulaması:**
-   - Dosya Yolu: `C:\Users\aozyurt\Documents\AG\T10F_Saat.apk`
-   - Saatinize Kablosuz Hata Ayıklama (Wireless ADB), Geminiman Wear OS Manager veya Bugjaeger ile tek dokunuşla yükleyebilirsiniz.
-   - Komut satırından yüklemek için:
-     ```bash
-     adb connect <saat-ip-adresi>:<port>
-     adb install C:\Users\aozyurt\Documents\AG\T10F_Saat.apk
-     ```
+--

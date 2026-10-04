@@ -82,3 +82,5 @@
 {"id":"AF087","s":"U1","p":"dispatches","o":"The ABRP open button launches com.iternio.abrpapp first, then com.iternio.abrp, then the ABRP website.","src":["F09"]}
 {"id":"AF083","s":"C8","p":"stores","o":"ABRP enablement, user token, selected capacity, and last successful transmission time are stored through SecureTokenStorage encrypted preferences.","src":["F06","F09"]}
 {"id":"AF084","s":"T4","p":"validates","o":"AbrpClientTest checks required JSON telemetry fields, calculated state of energy, charging state, and optional coordinates.","src":["F60","F58"]}
+{"id":"AF088","s":"U1","p":"renders","o":"The home dashboard always appends a full-width ABRP card after the configured home cards and location card; the card displays sync status and vehicle telemetry and offers send, open, and settings actions.","src":["F09","F06","F58"]}
+{"id":"AF089","s":"U1","p":"renders","o":"The settings dialog content is vertically scrollable and includes an ABRP settings shortcut near the top; the shortcut opens a dedicated dialog for ABRP enablement, token, battery capacity, manual send, and app launch.","src":["F09","F26"]}

@@ -40,6 +40,7 @@ import android.webkit.WebViewClient;
 import android.widget.FrameLayout;
 import android.widget.ImageView;
 import android.widget.RadioGroup;
+import android.widget.RadioButton;
 
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
@@ -1705,6 +1706,78 @@ public final class MainActivity extends Activity {
         if (fullWidthLocationCard != null) {
             homeCardsContainer.addView(fullWidthLocationCard);
         }
+        homeCardsContainer.addView(buildAbrpCard(t));
+    }
+
+    private View buildAbrpCard(VehicleTelemetry t) {
+        LinearLayout card = new LinearLayout(this);
+        card.setOrientation(LinearLayout.VERTICAL);
+        card.setBackgroundResource(R.drawable.card_bg);
+        card.setPadding(dpToPx(16), dpToPx(16), dpToPx(16), dpToPx(16));
+        LinearLayout.LayoutParams cardParams = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        cardParams.bottomMargin = dpToPx(14);
+        card.setLayoutParams(cardParams);
+        card.setClickable(true);
+        card.setFocusable(true);
+        card.setOnClickListener(v -> showAbrpSettingsDialog());
+
+        TextView title = new TextView(this);
+        title.setText("🗺️ ABRP Canlı Rota Planlayıcı");
+        title.setTextColor(getColor(R.color.accent_togg));
+        title.setTextSize(14);
+        title.setTypeface(null, Typeface.BOLD);
+        card.addView(title);
+
+        TextView status = new TextView(this);
+        status.setText(storage.isAbrpEnabled() ? "🟢 15 dk Senkronizasyon Açık" : "⚪ Senkronizasyon Kapalı (Kurulum için dokunun)");
+        status.setTextColor(getColor(R.color.text_secondary));
+        status.setTextSize(12);
+        LinearLayout.LayoutParams statusParams = new LinearLayout.LayoutParams(-1, -2);
+        statusParams.topMargin = dpToPx(6);
+        card.addView(status, statusParams);
+
+        TextView telemetry = new TextView(this);
+        String consumption = t.lastTripAvgConsumption > 0
+                ? String.format(Locale.US, "%.1f", t.lastTripAvgConsumption) : "16.8";
+        telemetry.setText("%" + t.batterySocPercent + " Batarya  •  " + consumption
+                + " kWh/100km  •  " + t.estimatedRangeKm + " km menzil");
+        telemetry.setTextColor(getColor(R.color.text_primary));
+        telemetry.setTextSize(13);
+        LinearLayout.LayoutParams telemetryParams = new LinearLayout.LayoutParams(-1, -2);
+        telemetryParams.topMargin = dpToPx(8);
+        card.addView(telemetry, telemetryParams);
+
+        LinearLayout buttons = new LinearLayout(this);
+        buttons.setOrientation(LinearLayout.HORIZONTAL);
+        buttons.setGravity(Gravity.CENTER_VERTICAL);
+        LinearLayout.LayoutParams buttonsParams = new LinearLayout.LayoutParams(-1, -2);
+        buttonsParams.topMargin = dpToPx(10);
+        card.addView(buttons, buttonsParams);
+
+        Button send = new Button(this);
+        send.setText("⚡ Şimdi Gönder");
+        send.setTextSize(11);
+        send.setOnClickListener(v -> sendAbrpTelemetry(currentTelemetry != null ? currentTelemetry : t, storage.getAbrpToken(), storage.getAbrpCapacity()));
+        Button open = new Button(this);
+        open.setText("🗺️ ABRP'de Aç");
+        open.setTextSize(11);
+        open.setOnClickListener(v -> openAbrp());
+        Button settings = new Button(this);
+        settings.setText("⚙️ Ayarlar");
+        settings.setTextSize(11);
+        settings.setOnClickListener(v -> showAbrpSettingsDialog());
+        buttons.addView(send, new LinearLayout.LayoutParams(0, dpToPx(44), 1));
+        buttons.addView(open, new LinearLayout.LayoutParams(0, dpToPx(44), 1));
+        buttons.addView(settings, new LinearLayout.LayoutParams(0, dpToPx(44), 1));
+        return card;
+    }
+
+    private void openAbrp() {
+        Intent appIntent = getPackageManager().getLaunchIntentForPackage("com.iternio.abrpapp");
+        if (appIntent == null) appIntent = getPackageManager().getLaunchIntentForPackage("com.iternio.abrp");
+        try { startActivity(appIntent != null ? appIntent : new Intent(Intent.ACTION_VIEW, Uri.parse("https://abetterrouteplanner.com/"))); }
+        catch (Exception ignored) { startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse("https://abetterrouteplanner.com/"))); }
     }
 
     private View buildHomeCard(String key, VehicleTelemetry t) {
@@ -2514,6 +2587,8 @@ public final class MainActivity extends Activity {
         Button syncKey = dialogView.findViewById(R.id.btn_settings_sync_key);
         RadioGroup themeGroup = dialogView.findViewById(R.id.rg_app_theme);
         Button customizeCards = dialogView.findViewById(R.id.btn_settings_customize_cards);
+        Button abrpShortcut = dialogView.findViewById(R.id.btn_settings_abrp_shortcut);
+        if (abrpShortcut != null) abrpShortcut.setOnClickListener(v -> { dialogInstance.dismiss(); showAbrpSettingsDialog(); });
         if (customizeCards != null) customizeCards.setOnClickListener(v -> { dialogInstance.dismiss(); showCustomizeHomeDialog(); });
         DigitalKey savedKey = new DigitalKeyManager(this).getActiveKey();
         if (keyStatus != null) keyStatus.setText(savedKey != null && savedKey.isValid() ? "Kayıtlı anahtar: " + savedKey.getRemainingTimeDisplay() : "Anahtar Tanımsız");
@@ -2628,6 +2703,75 @@ public final class MainActivity extends Activity {
         new Thread(() -> {
             if (AbrpClient.sendTelemetry(storage.getAbrpToken(), telemetry, storage.getAbrpCapacity())) storage.setAbrpLastSync(System.currentTimeMillis());
         }, "abrp-refresh-send").start();
+    }
+
+    private void showAbrpSettingsDialog() {
+        LinearLayout layout = new LinearLayout(this);
+        layout.setOrientation(LinearLayout.VERTICAL);
+        layout.setPadding(dpToPx(20), dpToPx(8), dpToPx(20), dpToPx(4));
+
+        CheckBox enabled = new CheckBox(this);
+        enabled.setText("15 dakikada bir ABRP'ye gönder");
+        enabled.setChecked(storage.isAbrpEnabled());
+        layout.addView(enabled);
+
+        EditText token = new EditText(this);
+        token.setHint("ABRP Generic Token");
+        token.setSingleLine(true);
+        token.setInputType(android.text.InputType.TYPE_CLASS_TEXT | android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD);
+        token.setText(storage.getAbrpToken());
+        layout.addView(token);
+
+        RadioGroup capacity = new RadioGroup(this);
+        RadioButton longRange = new RadioButton(this);
+        longRange.setId(View.generateViewId());
+        longRange.setText("88.5 kWh (Uzun Menzil)");
+        RadioButton standard = new RadioButton(this);
+        standard.setId(View.generateViewId());
+        standard.setText("52.4 kWh (Standart)");
+        capacity.addView(longRange);
+        capacity.addView(standard);
+        capacity.check(storage.getAbrpCapacity() < 70 ? standard.getId() : longRange.getId());
+        layout.addView(capacity);
+
+        Button send = new Button(this);
+        send.setText("Şimdi Gönder / Test Et");
+        send.setOnClickListener(v -> sendAbrpTelemetry(currentTelemetry != null ? currentTelemetry : storage.getActiveTelemetry(), token.getText().toString().trim(), capacity.getCheckedRadioButtonId() == standard.getId() ? 52.4 : 88.5));
+        layout.addView(send);
+        Button open = new Button(this);
+        open.setText("ABRP'yi Aç");
+        open.setOnClickListener(v -> openAbrp());
+        layout.addView(open);
+
+        AlertDialog.Builder builder = new AlertDialog.Builder(this)
+                .setTitle("ABRP Canlı Telemetri")
+                .setView(layout)
+                .setPositiveButton(getString(R.string.btn_save), null)
+                .setNegativeButton(getString(R.string.btn_cancel), null);
+        AlertDialog dialog = builder.create();
+        dialog.setOnShowListener(d -> dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
+            storage.setAbrpToken(token.getText().toString().trim());
+            storage.setAbrpEnabled(enabled.isChecked());
+            storage.setAbrpCapacity(capacity.getCheckedRadioButtonId() == standard.getId() ? 52.4 : 88.5);
+            configureAbrpJob(enabled.isChecked());
+            renderHomeCards();
+            dialog.dismiss();
+        }));
+        dialog.show();
+    }
+
+    private void sendAbrpTelemetry(VehicleTelemetry data, String token, double capacity) {
+        if (token == null || token.trim().isEmpty() || data == null) {
+            Toast.makeText(this, "ABRP token veya araç telemetrisi eksik.", Toast.LENGTH_LONG).show();
+            return;
+        }
+        new Thread(() -> {
+            boolean ok = AbrpClient.sendTelemetry(token, data, capacity);
+            runOnUiThread(() -> {
+                if (ok) { storage.setAbrpLastSync(System.currentTimeMillis()); Toast.makeText(this, "ABRP telemetrisi gönderildi.", Toast.LENGTH_SHORT).show(); }
+                else Toast.makeText(this, "ABRP gönderimi başarısız. Token ve bağlantıyı kontrol edin.", Toast.LENGTH_LONG).show();
+            });
+        }, "abrp-manual-send").start();
     }
 
     private void configureAbrpJob(boolean enabled) {

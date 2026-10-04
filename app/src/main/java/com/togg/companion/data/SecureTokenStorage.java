@@ -29,6 +29,10 @@ public final class SecureTokenStorage {
     private static final String KEY_LAST_REFRESH = "key_last_refresh";
     private static final String KEY_ACTIVE_TELEMETRY = "active_telemetry_json";
     private static final String KEY_VEHICLE_CUSTOM_NAME = "vehicle_custom_name";
+    private static final String KEY_ABRP_ENABLED = "abrp_enabled";
+    private static final String KEY_ABRP_TOKEN = "abrp_token";
+    private static final String KEY_ABRP_CAPACITY = "abrp_capacity";
+    private static final String KEY_ABRP_LAST_SYNC = "abrp_last_sync";
     private static final String DEFAULT_VEHICLE_NAME = "Togg T10F Fastback";
 
     public static final String DEFAULT_API_ENDPOINT = "https://tva-api.togg.cloud/info/api/v2/VehicleInfo";
@@ -62,6 +66,15 @@ public final class SecureTokenStorage {
     }
 
     public boolean isEncryptedStorageActive() { return isEncrypted; }
+
+    public boolean isAbrpEnabled() { return prefs.getBoolean(KEY_ABRP_ENABLED, false); }
+    public void setAbrpEnabled(boolean enabled) { prefs.edit().putBoolean(KEY_ABRP_ENABLED, enabled).apply(); }
+    public String getAbrpToken() { return prefs.getString(KEY_ABRP_TOKEN, ""); }
+    public void setAbrpToken(String token) { prefs.edit().putString(KEY_ABRP_TOKEN, token == null ? "" : token.trim()).apply(); }
+    public double getAbrpCapacity() { return Double.longBitsToDouble(prefs.getLong(KEY_ABRP_CAPACITY, Double.doubleToLongBits(88.5))); }
+    public void setAbrpCapacity(double capacity) { prefs.edit().putLong(KEY_ABRP_CAPACITY, Double.doubleToLongBits(capacity)).apply(); }
+    public long getAbrpLastSync() { return prefs.getLong(KEY_ABRP_LAST_SYNC, 0L); }
+    public void setAbrpLastSync(long millis) { prefs.edit().putLong(KEY_ABRP_LAST_SYNC, millis).apply(); }
 
     private static void migratePlaintextPreferences(SharedPreferences legacy, SharedPreferences encrypted) {
         if (encrypted.getBoolean(KEY_ENCRYPTED_MIGRATION_COMPLETE, false)) {

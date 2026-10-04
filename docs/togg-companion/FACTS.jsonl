@@ -76,3 +76,9 @@
 {"id":"AF079","s":"A0","p":"declares","o":"Release builds enable R8 minification and resource shrinking with rules preserving telemetry and key models, widget and action components, and security crypto classes.","src":["F37","F52"]}
 {"id":"AF080","s":"U1","p":"renders","o":"The phone dashboard presents trip distance, odometer, and separate vehicle update timestamps.","src":["F09","F24"]}
 {"id":"AF081","s":"C7","p":"communicates","o":"VehicleBleManager detects active Bluetooth connection via device reflection, supports broad vehicle name heuristics, scans for surrounding BLE devices, and maintains connection without disconnecting on custom GATT UUID absence.","src":["F50","F09"]}
+{"id":"AF082","s":"C8","p":"communicates","o":"AbrpJobService requests fresh telemetry through TvaApiClient and sends it through AbrpClient on a 15-minute network-constrained JobScheduler schedule when configured.","src":["F58","F59","F08","F06","F01"]}
+{"id":"AF085","s":"C8","p":"communicates","o":"AbrpClient sets consumption from lastTripAvgConsumption when positive, otherwise from positive currentTrip.avgConsumption.","src":["F58"]}
+{"id":"AF086","s":"C8","p":"declares","o":"AbrpJobService is non-exported and protected by BIND_JOB_SERVICE.","src":["F01"]}
+{"id":"AF087","s":"U1","p":"dispatches","o":"The ABRP open button launches com.iternio.abrpapp first, then com.iternio.abrp, then the ABRP website.","src":["F09"]}
+{"id":"AF083","s":"C8","p":"stores","o":"ABRP enablement, user token, selected capacity, and last successful transmission time are stored through SecureTokenStorage encrypted preferences.","src":["F06","F09"]}
+{"id":"AF084","s":"T4","p":"validates","o":"AbrpClientTest checks required JSON telemetry fields, calculated state of energy, charging state, and optional coordinates.","src":["F60","F58"]}

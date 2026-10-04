@@ -2,6 +2,8 @@ package com.togg.companion.ui;
 
 import android.app.Activity;
 import android.app.AlertDialog;
+import android.app.job.JobInfo;
+import android.app.job.JobScheduler;
 import android.Manifest;
 import android.bluetooth.BluetoothDevice;
 import android.content.pm.PackageManager;
@@ -9,6 +11,7 @@ import android.os.Build;
 import android.os.Handler;
 import android.os.Looper;
 import android.content.Intent;
+import android.content.ComponentName;
 import android.graphics.Typeface;
 import android.graphics.Bitmap;
 import android.graphics.Canvas;
@@ -65,6 +68,8 @@ import com.togg.companion.core.VehicleBleManager;
 import com.togg.companion.data.SecureTokenStorage;
 import com.togg.companion.data.TelemetryDatabaseHelper;
 import com.togg.companion.data.remote.TvaApiClient;
+import com.togg.companion.data.remote.AbrpClient;
+import com.togg.companion.service.AbrpJobService;
 import com.togg.companion.wearable.WearSyncManager;
 import com.togg.companion.widget.ToggAppWidgetProvider;
 
@@ -1004,6 +1009,7 @@ public final class MainActivity extends Activity {
                 currentTelemetry = updatedTelemetry;
                 dbHelper.insert(updatedTelemetry);
                 storage.saveActiveTelemetry(updatedTelemetry);
+                maybeSendAbrp(updatedTelemetry);
                 ToggAppWidgetProvider.updateAllWidgets(MainActivity.this);
                 storage.setLastRefresh(System.currentTimeMillis());
                 if (updatedTelemetry.timestampMillis > 0) {
@@ -2500,6 +2506,9 @@ public final class MainActivity extends Activity {
         EditText etOwnerId = dialogView.findViewById(R.id.et_owner_id);
         EditText etToken = dialogView.findViewById(R.id.et_token);
         CheckBox cbDemoMode = dialogView.findViewById(R.id.cb_demo_mode);
+        CheckBox cbAbrpEnabled = dialogView.findViewById(R.id.cb_abrp_enabled);
+        EditText etAbrpToken = dialogView.findViewById(R.id.et_abrp_token);
+        RadioGroup abrpCapacity = dialogView.findViewById(R.id.rg_abrp_capacity);
         TextView keyStatus = dialogView.findViewById(R.id.tv_settings_key_status);
         Button manageKey = dialogView.findViewById(R.id.btn_settings_manage_key);
         Button syncKey = dialogView.findViewById(R.id.btn_settings_sync_key);
@@ -2560,6 +2569,27 @@ public final class MainActivity extends Activity {
         if (etOwnerId != null) etOwnerId.setText(storage.getOwnerId());
         etToken.setText(storage.getAccessToken());
         cbDemoMode.setChecked(storage.isDemoMode());
+        cbAbrpEnabled.setChecked(storage.isAbrpEnabled());
+        etAbrpToken.setText(storage.getAbrpToken());
+        abrpCapacity.check(storage.getAbrpCapacity() < 70 ? R.id.rb_abrp_standard : R.id.rb_abrp_long);
+        dialogView.findViewById(R.id.btn_abrp_send).setOnClickListener(v -> {
+            String token = etAbrpToken.getText().toString().trim();
+            VehicleTelemetry data = currentTelemetry != null ? currentTelemetry : storage.getActiveTelemetry();
+            double capacity = abrpCapacity.getCheckedRadioButtonId() == R.id.rb_abrp_standard ? 52.4 : 88.5;
+            new Thread(() -> {
+                boolean ok = AbrpClient.sendTelemetry(token, data, capacity);
+                runOnUiThread(() -> {
+                    if (ok) { storage.setAbrpLastSync(System.currentTimeMillis()); Toast.makeText(this, "ABRP telemetrisi gönderildi.", Toast.LENGTH_SHORT).show(); }
+                    else Toast.makeText(this, "ABRP gönderimi başarısız. Token ve bağlantıyı kontrol edin.", Toast.LENGTH_LONG).show();
+                });
+            }, "abrp-manual-send").start();
+        });
+        dialogView.findViewById(R.id.btn_abrp_open).setOnClickListener(v -> {
+            Intent appIntent = getPackageManager().getLaunchIntentForPackage("com.iternio.abrpapp");
+            if (appIntent == null) appIntent = getPackageManager().getLaunchIntentForPackage("com.iternio.abrp");
+            try { startActivity(appIntent != null ? appIntent : new Intent(Intent.ACTION_VIEW, Uri.parse("https://abetterrouteplanner.com/"))); }
+            catch (Exception ignored) { startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse("https://abetterrouteplanner.com/"))); }
+        });
 
         dialogView.findViewById(R.id.et_plate).post(() -> {
             // Dialog buttons
@@ -2579,6 +2609,10 @@ public final class MainActivity extends Activity {
             if (!enteredToken.isEmpty()) {
                 storage.setAccessToken(enteredToken);
             }
+            storage.setAbrpToken(etAbrpToken.getText().toString());
+            storage.setAbrpEnabled(cbAbrpEnabled.isChecked());
+            storage.setAbrpCapacity(abrpCapacity.getCheckedRadioButtonId() == R.id.rb_abrp_standard ? 52.4 : 88.5);
+            configureAbrpJob(storage.isAbrpEnabled());
             storage.setDemoMode(cbDemoMode.isChecked() || !storage.hasValidToken());
             if (!storage.isDemoMode() && bleManager.isDemoConnected()) bleManager.disconnect();
             ToggAppWidgetProvider.updateAllWidgets(this);
@@ -2587,6 +2621,24 @@ public final class MainActivity extends Activity {
 
         dialogInstance.setButton(AlertDialog.BUTTON_NEGATIVE, getString(R.string.btn_cancel), (dialog, which) -> dialog.dismiss());
         dialogInstance.show();
+    }
+
+    private void maybeSendAbrp(VehicleTelemetry telemetry) {
+        if (!storage.isAbrpEnabled() || telemetry == null || System.currentTimeMillis() - storage.getAbrpLastSync() < AbrpJobService.INTERVAL_MILLIS) return;
+        new Thread(() -> {
+            if (AbrpClient.sendTelemetry(storage.getAbrpToken(), telemetry, storage.getAbrpCapacity())) storage.setAbrpLastSync(System.currentTimeMillis());
+        }, "abrp-refresh-send").start();
+    }
+
+    private void configureAbrpJob(boolean enabled) {
+        JobScheduler scheduler = (JobScheduler) getSystemService(JOB_SCHEDULER_SERVICE);
+        if (scheduler == null) return;
+        if (!enabled) { scheduler.cancel(AbrpJobService.JOB_ID); return; }
+        JobInfo job = new JobInfo.Builder(AbrpJobService.JOB_ID, new ComponentName(this, AbrpJobService.class))
+                .setRequiredNetworkType(JobInfo.NETWORK_TYPE_ANY)
+                .setPeriodic(AbrpJobService.INTERVAL_MILLIS)
+                .build();
+        scheduler.schedule(job);
     }
 
     private void applyThemeBeforeContent() {

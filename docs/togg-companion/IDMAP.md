@@ -63,6 +63,9 @@ Implemented native Android companion phone application (`app/`) and Wear OS Gala
 - `F55` = `app/src/main/res/drawable/tire_subcard_bg.xml`
 - `F56` = `app/src/main/res/drawable/tire_subcard_low.xml`
 - `F57` = `app/src/main/res/values-night/`
+- `F58` = `app/src/main/java/com/togg/companion/data/remote/AbrpClient.java`
+- `F59` = `app/src/main/java/com/togg/companion/service/AbrpJobService.java`
+- `F60` = `app/src/test/java/com/togg/companion/data/remote/AbrpClientTest.java`
 
 ## Entity IDs
 
@@ -87,6 +90,8 @@ Implemented native Android companion phone application (`app/`) and Wear OS Gala
 - `U6` = Resizable Android home screen vehicle telemetry widget
 - `U7` = Home dashboard trip card, odometer, and dual update timestamp UI
 - `C7` = Vehicle BLE connection and command feedback boundary
+- `C8` = ABRP telemetry client, secure preferences, and periodic background sync
+- `T4` = ABRP telemetry JSON unit tests
 
 ## Predicate vocabulary
 

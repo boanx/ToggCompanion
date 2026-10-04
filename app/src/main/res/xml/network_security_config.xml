@@ -10,6 +10,8 @@
         <domain includeSubdomains="true">toggid.togg.cloud</domain>
         <domain includeSubdomains="true">tva-api.togg.cloud</domain>
         <domain includeSubdomains="true">trumore.app</domain>
+        <domain includeSubdomains="true">iternio.com</domain>
+        <domain includeSubdomains="true">api.iternio.com</domain>
         <trust-anchors>
             <certificates src="system" />
         </trust-anchors>

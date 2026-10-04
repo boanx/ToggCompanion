@@ -1730,7 +1730,7 @@ public final class MainActivity extends Activity {
         card.addView(title);
 
         TextView status = new TextView(this);
-        status.setText(storage.isAbrpEnabled() ? "🟢 15 dk Senkronizasyon Açık" : "⚪ Senkronizasyon Kapalı (Kurulum için dokunun)");
+        status.setText(storage.isAbrpEnabled() ? "🟢 7 dk Senkronizasyon Açık" : "⚪ Senkronizasyon Kapalı (Kurulum için dokunun)");
         status.setTextColor(getColor(R.color.text_secondary));
         status.setTextSize(12);
         LinearLayout.LayoutParams statusParams = new LinearLayout.LayoutParams(-1, -2);
@@ -2711,7 +2711,7 @@ public final class MainActivity extends Activity {
         layout.setPadding(dpToPx(20), dpToPx(8), dpToPx(20), dpToPx(4));
 
         CheckBox enabled = new CheckBox(this);
-        enabled.setText("15 dakikada bir ABRP'ye gönder");
+        enabled.setText("7 dakikada bir ABRP'ye gönder");
         enabled.setChecked(storage.isAbrpEnabled());
         layout.addView(enabled);
 
@@ -2777,12 +2777,8 @@ public final class MainActivity extends Activity {
     private void configureAbrpJob(boolean enabled) {
         JobScheduler scheduler = (JobScheduler) getSystemService(JOB_SCHEDULER_SERVICE);
         if (scheduler == null) return;
-        if (!enabled) { scheduler.cancel(AbrpJobService.JOB_ID); return; }
-        JobInfo job = new JobInfo.Builder(AbrpJobService.JOB_ID, new ComponentName(this, AbrpJobService.class))
-                .setRequiredNetworkType(JobInfo.NETWORK_TYPE_ANY)
-                .setPeriodic(AbrpJobService.INTERVAL_MILLIS)
-                .build();
-        scheduler.schedule(job);
+        if (enabled) { AbrpJobService.scheduleNext(this); }
+        else { scheduler.cancel(AbrpJobService.JOB_ID); }
     }
 
     private void applyThemeBeforeContent() {

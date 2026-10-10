@@ -200,6 +200,14 @@ public final class TelemetryParser {
             // Real Togg schema: vehicleStatus -> content -> vehicleStat -> vehicleStatusValueEnum
             String vStat = findString(vehStatusObj, "LOCKED", "vehicleStatusValueEnum", "vehicleStat", "status");
             boolean isLocked = !vStat.toUpperCase().contains("UNLOCK") && !vStat.toUpperCase().contains("OPEN");
+            String readyStatus = findString(vehStatusObj, "", "vStat", "vehicleStatusValueEnum", "vehicleStat");
+            String powerStatus = findString(telem, "", "powerMode", "ignitionState", "powerStatus", "powerState", "vehiclePowerStatus");
+            Boolean readyFlag = findBoolean(telem, null, "isReadyToDrive", "readyToDrive", "ready", "driveReady");
+            double vehicleSpeed = findDouble(telem, 0.0, "speed", "vehicleSpeed", "currentSpeed", "carSpeed");
+            boolean isReadyToDrive = containsAny(readyStatus, "READY", "DRIVE", "DRIVING", "RUNNING", "MOVING", "ACTIVE", "POWER_ON")
+                    || containsAny(powerStatus, "READY", "DRIVE", "RUNNING", "ON", "ACTIVE")
+                    || Boolean.TRUE.equals(readyFlag) || vehicleSpeed > 0;
+            boolean headlightsOn = findBoolean(telem, false, "headlightsOn", "headlights", "lightsOn");
 
             JSONObject secObj = telem.optJSONObject("security");
             JSONObject secTarget = secObj != null ? secObj : telem;
@@ -279,11 +287,17 @@ public final class TelemetryParser {
                     isLocked, doorFL, doorFR, doorRL, doorRR, trunkOpen, frunkOpen, windowsOpen, chargePortOpen, samConnected,
                     odometer, driveMode, lastTripDist, lastTripDur, lastTripAvgCons, lastTripAvgSpd,
                     lat, lon, parkAddr, parkDur,
-                    timestamp, currentTrip, lastChargeTrip, myTrip
+                    timestamp, currentTrip, lastChargeTrip, myTrip, headlightsOn, isReadyToDrive
             );
         } catch (JSONException e) {
             return createDemoSnapshot(defaultVin, defaultPlate);
         }
+    }
+
+    private static boolean containsAny(String value, String... tokens) {
+        String upper = value == null ? "" : value.toUpperCase(Locale.ROOT);
+        for (String token : tokens) if (upper.contains(token)) return true;
+        return false;
     }
 
     private static VehicleTelemetry.TripData parseTripData(JSONObject tripObj, double fallbackDist, int fallbackDur, double fallbackCons, int fallbackSpd) {

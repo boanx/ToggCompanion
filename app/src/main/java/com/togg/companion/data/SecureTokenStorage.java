@@ -33,6 +33,10 @@ public final class SecureTokenStorage {
     private static final String KEY_ABRP_TOKEN = "abrp_token";
     private static final String KEY_ABRP_CAPACITY = "abrp_capacity";
     private static final String KEY_ABRP_LAST_SYNC = "abrp_last_sync";
+    private static final String KEY_ABRP_ROUTE_SYNC_ENABLED = "abrp_route_sync_enabled";
+    private static final String KEY_ABRP_LAST_DISPATCHED_STOP = "abrp_last_dispatched_stop";
+    private static final String KEY_ABRP_LAST_ROUTE_CHECK = "abrp_last_route_check";
+    private static final String KEY_ABRP_ACTIVE_STOP_NAME = "abrp_active_stop_name";
     private static final String DEFAULT_VEHICLE_NAME = "Togg T10F Fastback";
 
     public static final String DEFAULT_API_ENDPOINT = "https://tva-api.togg.cloud/info/api/v2/VehicleInfo";
@@ -75,6 +79,14 @@ public final class SecureTokenStorage {
     public void setAbrpCapacity(double capacity) { prefs.edit().putLong(KEY_ABRP_CAPACITY, Double.doubleToLongBits(capacity)).apply(); }
     public long getAbrpLastSync() { return prefs.getLong(KEY_ABRP_LAST_SYNC, 0L); }
     public void setAbrpLastSync(long millis) { prefs.edit().putLong(KEY_ABRP_LAST_SYNC, millis).apply(); }
+    public boolean isAbrpRouteSyncEnabled() { return prefs.getBoolean(KEY_ABRP_ROUTE_SYNC_ENABLED, false); }
+    public void setAbrpRouteSyncEnabled(boolean enabled) { prefs.edit().putBoolean(KEY_ABRP_ROUTE_SYNC_ENABLED, enabled).apply(); }
+    public String getAbrpLastDispatchedStop() { return prefs.getString(KEY_ABRP_LAST_DISPATCHED_STOP, ""); }
+    public void setAbrpLastDispatchedStop(String stopKey) { prefs.edit().putString(KEY_ABRP_LAST_DISPATCHED_STOP, stopKey == null ? "" : stopKey).apply(); }
+    public long getAbrpLastRouteCheck() { return prefs.getLong(KEY_ABRP_LAST_ROUTE_CHECK, 0L); }
+    public void setAbrpLastRouteCheck(long millis) { prefs.edit().putLong(KEY_ABRP_LAST_ROUTE_CHECK, millis).apply(); }
+    public String getAbrpActiveStopName() { return prefs.getString(KEY_ABRP_ACTIVE_STOP_NAME, ""); }
+    public void setAbrpActiveStopName(String name) { prefs.edit().putString(KEY_ABRP_ACTIVE_STOP_NAME, name == null ? "" : name.trim()).apply(); }
 
     private static void migratePlaintextPreferences(SharedPreferences legacy, SharedPreferences encrypted) {
         if (encrypted.getBoolean(KEY_ENCRYPTED_MIGRATION_COMPLETE, false)) {

@@ -6,6 +6,22 @@ import static org.junit.Assert.*;
 public class TelemetryParserTest {
 
     @Test
+    public void testReadyToDriveFromVehicleStatus() {
+        assertTrue(TelemetryParser.parse("{\"data\":{\"telemetry\":{\"vehicleStatus\":{\"vehicleStatusValueEnum\":\"READY\"}}}}", "VIN", "PLATE").isReadyToDrive);
+        assertTrue(TelemetryParser.parse("{\"data\":{\"telemetry\":{\"vehicleStatus\":{\"vehicleStatusValueEnum\":\"DRIVE\"}}}}", "VIN", "PLATE").isReadyToDrive);
+    }
+
+    @Test
+    public void testReadyToDriveFromPositiveSpeed() {
+        assertTrue(TelemetryParser.parse("{\"data\":{\"telemetry\":{\"vehicleSpeed\":1}}}", "VIN", "PLATE").isReadyToDrive);
+    }
+
+    @Test
+    public void testReadyToDriveFromBooleanFlag() {
+        assertTrue(TelemetryParser.parse("{\"data\":{\"telemetry\":{\"isReadyToDrive\":true}}}", "VIN", "PLATE").isReadyToDrive);
+    }
+
+    @Test
     public void testParseTimestampIsoVariantsAndEpochs() {
         long expected = java.time.Instant.parse("2026-10-01T10:15:30Z").toEpochMilli();
         assertEquals(expected, TelemetryParser.parseTimestamp("2026-10-01T10:15:30Z", -1));

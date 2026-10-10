@@ -3,6 +3,7 @@ package com.togg.companion.data.remote;
 import com.togg.companion.core.TelemetryParser;
 import com.togg.companion.core.ToggAuthManager;
 import com.togg.companion.core.VehicleTelemetry;
+import com.togg.companion.core.GezRouteBridge;
 import com.togg.companion.data.SecureTokenStorage;
 
 import java.io.BufferedReader;
@@ -11,6 +12,9 @@ import java.io.InputStreamReader;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
+import org.json.JSONObject;
+import org.json.JSONArray;
+import java.io.OutputStream;
 
 /**
  * Handles communication with Togg TVA (Telematics & Vehicle Access) cloud API.
@@ -21,6 +25,8 @@ import java.nio.charset.StandardCharsets;
  *   2. GET /info/api/v2/FriendVehicleInfo?vin=XXX (for shared/family drivers)
  */
 public final class TvaApiClient {
+    public interface DestinationCallback { void onSuccess(String message); void onError(String message); }
+    public static final String PLANNED_JOURNEYS_ENDPOINT = "https://superapp-api.channels.togg.cloud/j/api/PlannedJourneys";
 
     public interface TelemetryCallback {
         void onSuccess(VehicleTelemetry telemetry, boolean isLive);
@@ -34,6 +40,68 @@ public final class TvaApiClient {
 
     public TvaApiClient(SecureTokenStorage storage) {
         this.storage = storage;
+    }
+
+    public void sendDestinationToVehicle(double lat, double lon, String name, DestinationCallback callback) {
+        new Thread(() -> sendDestinationRequest(lat, lon, name, null, callback, true), "togg-planned-journey").start();
+    }
+
+    public void sendRouteToVehicle(GezRouteBridge.GezPoint route, DestinationCallback callback) {
+        if (route == null) { callback.onError("Rota hedefi bulunamadı."); return; }
+        new Thread(() -> sendDestinationRequest(route.lat, route.lon, route.name, route, callback, true), "togg-planned-route").start();
+    }
+
+    private void sendDestinationRequest(double lat, double lon, String name, GezRouteBridge.GezPoint route, DestinationCallback callback, boolean allowRefresh) {
+        if (!storage.hasValidToken() || storage.isDemoMode()) {
+            callback.onError("Togg ID ile giriş yapın ve aracın VIN numarasını ayarlayın.");
+            return;
+        }
+        String vin = storage.getVin();
+        if (vin == null || vin.trim().isEmpty() || storage.isDemoVin()) {
+            callback.onError("Gerçek araç VIN numarası olmadan hedef gönderilemez.");
+            return;
+        }
+        HttpURLConnection connection = null;
+        try {
+            JSONObject destination = new JSONObject();
+            destination.put("latitude", lat); destination.put("longitude", lon);
+            destination.put("name", name == null || name.trim().isEmpty() ? "Hedef" : name.trim());
+            JSONObject payload = new JSONObject();
+            payload.put("vin", vin.trim()); payload.put("destination", destination);
+            if (route != null && route.hasMultipleStops()) {
+                JSONArray stops = new JSONArray();
+                for (GezRouteBridge.GezPoint stop : route.stops) {
+                    JSONObject item = new JSONObject();
+                    item.put("latitude", stop.lat); item.put("longitude", stop.lon); item.put("name", stop.name == null ? "" : stop.name);
+                    stops.put(item);
+                }
+                payload.put("stops", stops);
+            }
+            connection = (HttpURLConnection) new URL(PLANNED_JOURNEYS_ENDPOINT).openConnection();
+            connection.setRequestMethod("POST"); connection.setConnectTimeout(15000); connection.setReadTimeout(15000);
+            connection.setDoOutput(true); connection.setRequestProperty("Accept", "application/json");
+            connection.setRequestProperty("Content-Type", "application/json; charset=utf-8");
+            connection.setRequestProperty("Authorization", "Bearer " + storage.getAccessToken());
+            byte[] body = payload.toString().getBytes(StandardCharsets.UTF_8);
+            try (OutputStream output = connection.getOutputStream()) { output.write(body); }
+            int code = connection.getResponseCode();
+            if (code == 401 && allowRefresh && !storage.getRefreshToken().isEmpty()) {
+                connection.disconnect(); connection = null;
+                ToggAuthManager.refreshAccessToken(storage.getRefreshToken(), new ToggAuthManager.TokenCallback() {
+                    @Override public void onSuccess(String accessToken, String refreshToken) {
+                        storage.setAccessToken(accessToken); storage.setRefreshToken(refreshToken);
+                        sendDestinationRequest(lat, lon, name, route, callback, false);
+                    }
+                    @Override public void onError(String message) { callback.onError("Oturum yenilenemedi. Lütfen Togg ID ile yeniden giriş yapın."); }
+                });
+                return;
+            }
+            InputStream response = code >= 200 && code < 300 ? connection.getInputStream() : connection.getErrorStream();
+            String responseText = response == null ? "" : readStream(response);
+            if (code >= 200 && code < 300) callback.onSuccess("Hedef Togg aracınıza iletildi.");
+            else callback.onError("Togg Cloud hedef gönderimi başarısız (HTTP " + code + "). " + responseText);
+        } catch (Exception error) { callback.onError("Togg Cloud bağlantı hatası: " + error.getMessage()); }
+        finally { if (connection != null) connection.disconnect(); }
     }
 
     public void fetchTelemetry(TelemetryCallback callback) {

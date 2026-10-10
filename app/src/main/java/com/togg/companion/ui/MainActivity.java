@@ -206,7 +206,26 @@ public final class MainActivity extends Activity {
     private ImageView ivEmotorIcon;
     private TextView tvBleStatus;
     private VehicleBleManager bleManager;
-    private final VehicleBleManager.OnBleStateChangeListener bleListener = state -> updateBleStatus();
+    private final VehicleBleManager.OnBleStateChangeListener bleListener = state -> {
+        updateBleStatus();
+        String error = bleManager == null ? null : bleManager.getConnectionError();
+        if (state == VehicleBleManager.ConnectionState.DISCONNECTED && error != null && !error.isEmpty()) {
+            Toast.makeText(this, error, Toast.LENGTH_LONG).show();
+        }
+    };
+    private final VehicleBleManager.OnBleTelemetryListener bleTelemetryListener = updated -> {
+        currentTelemetry = updated;
+        dbHelper.insert(updated);
+        storage.saveActiveTelemetry(updated);
+        updateEmotorCard();
+        updateDoorUi();
+        updateTrunkUi();
+        updateHeroCarVisual();
+        renderQuickActionsBar();
+        renderHomeCards();
+        ToggAppWidgetProvider.updateAllWidgets(this);
+        WearSyncManager.syncTelemetry(this, updated);
+    };
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -216,6 +235,7 @@ public final class MainActivity extends Activity {
         storage = new SecureTokenStorage(this);
         bleManager = VehicleBleManager.getInstance(this);
         bleManager.addListener(bleListener);
+        bleManager.addTelemetryListener(bleTelemetryListener);
         applyThemeBeforeContent();
         setContentView(R.layout.activity_main);
         dbHelper = new TelemetryDatabaseHelper(this);
@@ -277,9 +297,19 @@ public final class MainActivity extends Activity {
     }
 
     private void handleGezShareIntent(Intent intent) {
-        if (intent != null && Intent.ACTION_SEND.equals(intent.getAction())) {
+        if (intent == null) return;
+        if (Intent.ACTION_SEND.equals(intent.getAction())) {
             String sharedText = intent.getStringExtra(Intent.EXTRA_TEXT);
-            if (sharedText != null && !sharedText.trim().isEmpty()) showSendToGezDialog(sharedText);
+            if (sharedText == null && intent.getClipData() != null && intent.getClipData().getItemCount() > 0) {
+                CharSequence clipText = intent.getClipData().getItemAt(0).coerceToText(this);
+                if (clipText != null) sharedText = clipText.toString();
+            }
+            if (sharedText != null && !sharedText.trim().isEmpty()
+                    && DigitalKeyManager.parseFromInput(sharedText) == null) showSendToGezDialog(sharedText);
+        } else if (Intent.ACTION_VIEW.equals(intent.getAction())) {
+            Uri data = intent.getData();
+            if (data == null || DigitalKeyManager.parseFromUri(data) != null) return;
+            showSendToGezDialog(data.toString());
         }
     }
 
@@ -627,7 +657,9 @@ public final class MainActivity extends Activity {
 
     private void updateEmotorCard() {
         boolean connected = bleManager != null && bleManager.isConnected();
-        boolean ready = currentTelemetry != null && currentTelemetry.isReadyToDrive;
+        boolean ready = currentTelemetry != null && (currentTelemetry.isReadyToDrive
+                || (currentTelemetry.currentTrip != null && currentTelemetry.currentTrip.avgSpeed > 0)
+                || currentTelemetry.lastTripAvgSpeed > 0);
         int color;
         String state;
         if (!connected) {
@@ -797,8 +829,8 @@ public final class MainActivity extends Activity {
     private boolean requireBleConnection() {
         if (bleManager.isConnected()) return true;
         new AlertDialog.Builder(this).setTitle("Bluetooth Bağlantısı Gerekli")
-                .setMessage("Togg güvenlik protokolü gereği kapı kilidi, bagaj ve e-motor komutları yalnızca araç ile Bluetooth bağlantısı kurulduğunda çalışır.\n\nLütfen önce aracınıza Bluetooth ile bağlanın.")
-                .setPositiveButton("Araca Bağlan", (d, w) -> showBleConnectionDialog())
+                .setMessage("Kapı, bagaj ve e-Motor komutları için Togg Smart Access BLE GATT servisi gerekir. Medya Bluetooth eşleşmesi yeterli değildir.\n\nAraç yakınında Smart Access BLE beacon'ını tarayın.")
+                .setPositiveButton("Smart Access Tara", (d, w) -> showBleConnectionDialog())
                 .setNegativeButton("İptal", null).show();
         return false;
     }
@@ -828,14 +860,17 @@ public final class MainActivity extends Activity {
     private void updateBleStatus() {
         updateEmotorCard();
         if (tvBleStatus == null) return;
-        if (bleManager.isConnected()) {
-            tvBleStatus.setText("📶 Bluetooth: Bağlı (" + bleManager.getConnectedDeviceName() + ")");
+        if (bleManager.isGattReady()) {
+            tvBleStatus.setText("📶 Smart Access Bağlı (" + bleManager.getConnectedDeviceName() + ")");
             tvBleStatus.setTextColor(getColor(R.color.status_green));
         } else if (bleManager.getConnectionState() == VehicleBleManager.ConnectionState.CONNECTING) {
-            tvBleStatus.setText("⏳ Bluetooth: Araca Bağlanıyor...");
+            tvBleStatus.setText("⏳ BLE Smart Access Servisi Aranıyor...");
+            tvBleStatus.setTextColor(getColor(R.color.status_amber));
+        } else if (bleManager.getConnectionError() != null) {
+            tvBleStatus.setText("⚠️ Smart Access bulunamadı (Medya BT komut gönderemez)");
             tvBleStatus.setTextColor(getColor(R.color.status_amber));
         } else {
-            tvBleStatus.setText("⭕ Bluetooth: Bağlı Değil (Dokun & Bağlan)");
+            tvBleStatus.setText("⭕ Smart Access BLE bağlı değil (Dokun & Tara)");
             tvBleStatus.setTextColor(getColor(R.color.text_secondary));
         }
     }
@@ -868,7 +903,8 @@ public final class MainActivity extends Activity {
         if (!bleManager.isBluetoothEnabled()) { openIndex = options.size(); options.add("Bluetooth'u Aç"); }
         final int pairedCount = devices.size(), scanChoice = scanIndex, othersChoice = otherIndex;
         final int demoChoice = demoIndex, disconnectChoice = disconnectIndex, openChoice = openIndex;
-        new AlertDialog.Builder(this).setTitle("Araç Bluetooth Bağlantısı")
+        new AlertDialog.Builder(this).setTitle("Araç Smart Access BLE Bağlantısı")
+                .setMessage("Araç medya Bluetooth eşleşmesi Smart Access komutlarını taşımaz. Kapı, bagaj ve e-Motor komutları için araç yakınında Smart Access BLE beacon'ını tarayın.")
                 .setItems(options.toArray(new String[0]), (dialog, which) -> {
                     if (which < pairedCount) bleManager.connectToVehicle(this, devices.get(which));
                     else if (which == scanChoice) {
@@ -1017,8 +1053,11 @@ public final class MainActivity extends Activity {
         apiClient.fetchTelemetry(new TvaApiClient.TelemetryCallback() {
             @Override
             public void onSuccess(VehicleTelemetry telemetry, boolean isLive) {
-                final VehicleTelemetry updatedTelemetry = telemetry != null && currentTelemetry != null
-                        ? telemetry.withReadyToDrive(currentTelemetry.isReadyToDrive) : telemetry;
+                boolean readyToDrive = (telemetry != null && telemetry.isReadyToDrive)
+                        || (currentTelemetry != null && currentTelemetry.isReadyToDrive);
+                final VehicleTelemetry updatedTelemetry = telemetry != null
+                        ? (telemetry.isReadyToDrive != readyToDrive ? telemetry.withReadyToDrive(readyToDrive) : telemetry)
+                        : currentTelemetry;
                 currentTelemetry = updatedTelemetry;
                 dbHelper.insert(updatedTelemetry);
                 storage.saveActiveTelemetry(updatedTelemetry);
@@ -1065,6 +1104,7 @@ public final class MainActivity extends Activity {
 
     private void renderTelemetry(VehicleTelemetry t, boolean isDemo) {
         if (t == null) return;
+        if (bleManager != null) bleManager.setTelemetry(t);
         storage.saveActiveTelemetry(t);
         ToggAppWidgetProvider.updateAllWidgets(this);
 
@@ -1742,7 +1782,12 @@ public final class MainActivity extends Activity {
         card.addView(title);
 
         TextView status = new TextView(this);
-        status.setText(storage.isAbrpEnabled() ? "🟢 7 dk Senkronizasyon Açık" : "⚪ Senkronizasyon Kapalı (Kurulum için dokunun)");
+        String abrpStatus = storage.isAbrpEnabled() ? "🟢 7 dk telemetri" : "⚪ Telemetri kapalı";
+        if (storage.isAbrpRouteSyncEnabled()) {
+            abrpStatus += " • 15 dk rota aktarımı açık";
+            if (!storage.getAbrpActiveStopName().isEmpty()) abrpStatus += "\nSonraki durak: " + storage.getAbrpActiveStopName();
+        } else abrpStatus += " • Rota aktarımı kapalı";
+        status.setText(abrpStatus);
         status.setTextColor(getColor(R.color.text_secondary));
         status.setTextSize(12);
         LinearLayout.LayoutParams statusParams = new LinearLayout.LayoutParams(-1, -2);
@@ -1805,7 +1850,13 @@ public final class MainActivity extends Activity {
                 ClipData clip = clipboard.getPrimaryClip();
                 if (clip != null && clip.getItemCount() > 0) {
                     CharSequence candidate = clip.getItemAt(0).coerceToText(this);
-                    if (candidate != null) initial = candidate.toString();
+                    if (candidate != null) {
+                        String clipboardText = candidate.toString().trim();
+                        if (clipboardText.contains("http") || clipboardText.startsWith("geo:")
+                                || clipboardText.startsWith("google.navigation:") || clipboardText.contains(",")) {
+                            initial = clipboardText;
+                        }
+                    }
                 }
             }
         }
@@ -1820,8 +1871,16 @@ public final class MainActivity extends Activity {
         android.widget.ProgressBar progress = new android.widget.ProgressBar(this);
         progress.setIndeterminate(true);
         TextView status = new TextView(this);
+        Button directDispatch = new Button(this);
+        directDispatch.setText("⚡ Tek Tıkla Araca İlet (Togg Cloud)");
+        directDispatch.setBackgroundResource(R.drawable.btn_gradient);
+        directDispatch.setTextColor(getColor(R.color.white));
+        directDispatch.setTypeface(null, Typeface.BOLD);
+        directDispatch.setMinHeight(dpToPx(54));
+        directDispatch.setVisibility(View.GONE);
         content.addView(progress);
         content.addView(status);
+        content.addView(directDispatch);
         TextView routeTitle = new TextView(this);
         routeTitle.setTypeface(null, Typeface.BOLD);
         content.addView(routeTitle);
@@ -1854,12 +1913,13 @@ public final class MainActivity extends Activity {
         Button resolveButton = new Button(this);
         resolveButton.setText("Çözümle");
         content.addView(resolveButton);
-        AlertDialog dialog = new AlertDialog.Builder(this)
+        AlertDialog.Builder dialogBuilder = new AlertDialog.Builder(this)
                 .setTitle("Rota / Konumu Akıllı Cihaza Aktar")
                 .setView(content)
                 .setNegativeButton("İptal", null)
-                .setPositiveButton("🚀 Varış Noktasını Aktar", null)
-                .create();
+                .setPositiveButton("⚡ Tek Tıkla Araca İlet (Togg Cloud)", null)
+                .setNeutralButton("🧭 Araç Navigasyonunu Başlat", null);
+        AlertDialog dialog = dialogBuilder.create();
         final GezRouteBridge.GezPoint[] resolved = new GezRouteBridge.GezPoint[1];
         final int[] selectedStop = {-1};
         Runnable resolve = () -> {
@@ -1870,29 +1930,50 @@ public final class MainActivity extends Activity {
                 @Override public void onResolved(GezRouteBridge.GezPoint point) {
                     if (!dialog.isShowing()) return;
                     resolved[0] = point;
+                    directDispatch.setVisibility(View.VISIBLE);
                     stopList.removeAllViews();
+                    final List<LinearLayout> stopCards = new ArrayList<>();
                     routeTitle.setVisibility(point.hasMultipleStops() ? View.VISIBLE : View.GONE);
                     bridgeNote.setVisibility(point.hasMultipleStops() ? View.VISIBLE : View.GONE);
-                    selectedStop[0] = point.hasMultipleStops() ? point.stops.size() - 1 : -1;
+                    selectedStop[0] = -1;
                     if (point.hasMultipleStops()) {
+                        GezRouteBridge.GezPoint destination = point.stops.get(point.stops.size() - 1);
+                        dialog.getButton(AlertDialog.BUTTON_POSITIVE).setText("🚀 Varış Hedefini Gez'e Aktar (" + destination.name + ")");
+                        dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setText("🧭 Tüm Rotayı Navigasyonda Aç (" + point.stops.size() + " Durak)");
+                        bridgeNote.setText("ℹ️ Trumore ve Araç Gez altyapısı tek seferde tek hedef kabul eder. Ara durakları yukarıdaki listeden sırayla aracınıza aktarabilir, tüm rotayı aynı anda takip etmek için harita navigasyonunu başlatabilirsiniz.");
                         routeTitle.setText("📍 Çoklu Duraklı Rota (" + point.stops.size() + " Durak):");
                         for (int i = 0; i < point.stops.size(); i++) {
                             final int index = i;
                             GezRouteBridge.GezPoint stop = point.stops.get(i);
-                            String label = i == 0 ? "🚩 Başlangıç (1. Durak)" : i == point.stops.size() - 1 ? "🏁 Varış Hedefi" : "🛑 Ara Duraklar (" + (i + 1) + ". Durak)";
                             LinearLayout row = new LinearLayout(MainActivity.this);
+                            row.setOrientation(LinearLayout.HORIZONTAL);
                             row.setGravity(Gravity.CENTER_VERTICAL);
+                            stopCards.add(row);
                             TextView details = new TextView(MainActivity.this);
-                            details.setText(label + "\n" + (stop.name == null ? "Durak" : stop.name) + " · " + stop.lat + ", " + stop.lon);
                             row.addView(details, new LinearLayout.LayoutParams(0, -2, 1));
+                            LinearLayout rowActions = new LinearLayout(MainActivity.this);
+                            rowActions.setOrientation(LinearLayout.VERTICAL);
                             Button choose = new Button(MainActivity.this);
-                            choose.setText("Aktar");
+                            Button cloudDispatch = new Button(MainActivity.this);
+                            cloudDispatch.setText("⚡ Araca İlet");
+                            cloudDispatch.setTextColor(getColor(R.color.white));
+                            cloudDispatch.setBackgroundResource(R.drawable.btn_gradient);
+                            cloudDispatch.setTextSize(10);
+                            rowActions.addView(cloudDispatch);
+                            rowActions.addView(choose);
+                            row.addView(rowActions);
+                            updateStopCardUi(row, i == selectedStop[0], stop, i, point.stops.size());
                             choose.setOnClickListener(view -> {
-                                selectedStop[0] = index;
-                                dialog.getButton(AlertDialog.BUTTON_POSITIVE).setText(index == point.stops.size() - 1 ? "🚀 Varış Noktasını Aktar" : "🚀 Seçili Durağı Aktar");
+                                boolean opened = GezRouteBridge.openInTrumore(MainActivity.this, stop.lat, stop.lon, stop.name);
+                                if (opened) {
+                                    Toast.makeText(MainActivity.this, "Trumore açılıyor... Akıllı cihazınıza aktarılıyor.", Toast.LENGTH_LONG).show();
+                                    dialog.dismiss();
+                                } else Toast.makeText(MainActivity.this, "Trumore açılamadı.", Toast.LENGTH_LONG).show();
                             });
-                            row.addView(choose);
-                            stopList.addView(row);
+                            cloudDispatch.setOnClickListener(view -> dispatchGezCloud(dialog, stop, true));
+                            LinearLayout.LayoutParams rowParams = new LinearLayout.LayoutParams(-1, -2);
+                            rowParams.bottomMargin = dpToPx(8);
+                            stopList.addView(row, rowParams);
                         }
                     }
                     progress.setVisibility(View.GONE);
@@ -1901,6 +1982,7 @@ public final class MainActivity extends Activity {
                 }
                 @Override public void onError(String error) {
                     if (!dialog.isShowing()) return;
+                    directDispatch.setVisibility(View.GONE);
                     progress.setVisibility(View.GONE);
                     status.setText(error);
                     status.setTextColor(0xffc62828);
@@ -1908,17 +1990,84 @@ public final class MainActivity extends Activity {
             });
         };
         resolveButton.setOnClickListener(v -> resolve.run());
-        dialog.setOnShowListener(ignored -> dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
+        directDispatch.setOnClickListener(v -> {
             GezRouteBridge.GezPoint point = resolved[0];
-            if (point == null) { resolve.run(); return; }
-            GezRouteBridge.GezPoint target = selectedStop[0] >= 0 ? point.stops.get(selectedStop[0]) : point;
-            if (GezRouteBridge.openInTrumore(this, target.lat, target.lon, target.name)) {
-                Toast.makeText(this, "Trumore Gez açılıyor... Akıllı cihazınıza aktarılıyor.", Toast.LENGTH_LONG).show();
-                dialog.dismiss();
-            } else Toast.makeText(this, "Trumore açılamadı.", Toast.LENGTH_LONG).show();
-        }));
+            if (point == null) { Toast.makeText(this, "Önce hedefi çözümleyin.", Toast.LENGTH_SHORT).show(); return; }
+            dispatchGezCloud(dialog, point, false);
+        });
+        dialog.setOnShowListener(ignored -> {
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
+                if (resolved[0] == null) resolve.run();
+                else dispatchGezCloud(dialog, resolved[0], false);
+            });
+            dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener(v -> dispatchGezTarget(dialog, resolved[0], selectedStop[0], false, resolve));
+        });
         dialog.show();
         if (initial != null && !initial.trim().isEmpty()) resolve.run();
+    }
+
+    private void updateStopCardUi(LinearLayout card, boolean isSelected, GezRouteBridge.GezPoint stop, int index, int totalStops) {
+        String role = index == 0 ? "1. Durak / Başlangıç"
+                : index == totalStops - 1 ? (index + 1) + ". Durak / Varış Hedefi"
+                : (index + 1) + ". Durak / Ara Durak";
+        TextView details = (TextView) card.getChildAt(0);
+        LinearLayout actions = (LinearLayout) card.getChildAt(1);
+        Button choose = (Button) actions.getChildAt(1);
+        int paddingH = dpToPx(12), paddingV = dpToPx(10);
+        card.setPadding(paddingH, paddingV, paddingH, paddingV);
+        card.setBackgroundColor(isSelected ? 0xFF064E3B : 0xFF1E293B);
+        details.setText(role + "\n" + (stop.name == null ? "Durak" : stop.name) + "\n" + stop.lat + ", " + stop.lon
+                + (isSelected ? "  ✓ Seçili" : ""));
+        details.setTextSize(14);
+        android.text.SpannableString styled = new android.text.SpannableString(details.getText());
+        int firstBreak = styled.toString().indexOf('\n');
+        int secondBreak = styled.toString().indexOf('\n', firstBreak + 1);
+        styled.setSpan(new android.text.style.ForegroundColorSpan(isSelected ? 0xFF10B981 : 0xFF00C2D6), 0, firstBreak, 0);
+        styled.setSpan(new android.text.style.StyleSpan(Typeface.BOLD), 0, firstBreak, 0);
+        styled.setSpan(new android.text.style.ForegroundColorSpan(0xFFF8FAFC), firstBreak + 1, secondBreak, 0);
+        styled.setSpan(new android.text.style.StyleSpan(Typeface.BOLD), firstBreak + 1, secondBreak, 0);
+        styled.setSpan(new android.text.style.ForegroundColorSpan(isSelected ? 0xFFA7F3D0 : 0xFF94A3B8), secondBreak + 1, styled.length(), 0);
+        details.setText(styled);
+        choose.setText(isSelected ? "✓ Trumore" : "Trumore");
+        choose.setTextColor(isSelected ? 0xFFFFFFFF : 0xFF00C2D6);
+        choose.setBackgroundResource(isSelected ? R.drawable.btn_gradient : R.drawable.btn_outline);
+    }
+    private void dispatchGezTarget(AlertDialog dialog, GezRouteBridge.GezPoint point, int selectedIndex, boolean trumore, Runnable resolve) {
+        if (point == null) { resolve.run(); return; }
+        GezRouteBridge.GezPoint target = selectedIndex >= 0 && selectedIndex < point.stops.size() ? point.stops.get(selectedIndex) : point;
+        boolean opened = selectedIndex < 0
+                ? (trumore ? GezRouteBridge.openInTrumore(this, point) : GezRouteBridge.openInNavigation(this, point))
+                : (trumore ? GezRouteBridge.openInTrumore(this, target.lat, target.lon, target.name)
+                : GezRouteBridge.openInNavigation(this, target.lat, target.lon, target.name));
+        if (opened) {
+            if (trumore && point.hasMultipleStops() && selectedIndex < 0) {
+                Toast.makeText(this, "Varış noktası (" + target.name + ") Trumore üzerinden akıllı cihaza aktarılıyor... (Ara durakları listeden sırayla aktarabilirsiniz)", Toast.LENGTH_LONG).show();
+            } else if (trumore) {
+                Toast.makeText(this, target.name + " Trumore üzerinden akıllı cihaza aktarılıyor...", Toast.LENGTH_LONG).show();
+            } else Toast.makeText(this, "Araç navigasyonu başlatılıyor.", Toast.LENGTH_LONG).show();
+            dialog.dismiss();
+        } else Toast.makeText(this, trumore ? "Trumore açılamadı." : "Navigasyon açılamadı.", Toast.LENGTH_LONG).show();
+    }
+
+    private void dispatchGezCloud(AlertDialog dialog, GezRouteBridge.GezPoint point, boolean isStop) {
+        String name = point.name == null || point.name.trim().isEmpty() ? "Hedef" : point.name;
+        Toast.makeText(this, "Togg Cloud ile araca iletiliyor: " + name, Toast.LENGTH_SHORT).show();
+        GezRouteBridge.dispatchToVehicleCloud(this, storage, point, new GezRouteBridge.CloudCallback() {
+            @Override public void onSuccess(String message) {
+                runOnUiThread(() -> {
+                    if (message.startsWith("CLOUD|")) {
+                        Toast.makeText(MainActivity.this, isStop
+                                ? "⚡ Durak Togg bulutu üzerinden doğrudan T10X ekranına aktarıldı: " + name
+                                : "⚡ Rota Togg bulutu üzerinden doğrudan T10X ekranına aktarıldı: " + name,
+                                Toast.LENGTH_LONG).show();
+                    } else Toast.makeText(MainActivity.this, message.substring("TRUMORE|".length()), Toast.LENGTH_LONG).show();
+                    if (dialog != null && dialog.isShowing()) dialog.dismiss();
+                });
+            }
+            @Override public void onError(String message) {
+                runOnUiThread(() -> Toast.makeText(MainActivity.this, "Hedef iletilemedi: " + message, Toast.LENGTH_LONG).show());
+            }
+        });
     }
     private void openAbrp() {
         Intent appIntent = getPackageManager().getLaunchIntentForPackage("com.iternio.abrpapp");
@@ -2727,6 +2876,7 @@ public final class MainActivity extends Activity {
         EditText etToken = dialogView.findViewById(R.id.et_token);
         CheckBox cbDemoMode = dialogView.findViewById(R.id.cb_demo_mode);
         CheckBox cbAbrpEnabled = dialogView.findViewById(R.id.cb_abrp_enabled);
+        CheckBox cbAbrpRouteSync = dialogView.findViewById(R.id.cb_abrp_route_sync);
         EditText etAbrpToken = dialogView.findViewById(R.id.et_abrp_token);
         RadioGroup abrpCapacity = dialogView.findViewById(R.id.rg_abrp_capacity);
         TextView keyStatus = dialogView.findViewById(R.id.tv_settings_key_status);
@@ -2792,6 +2942,7 @@ public final class MainActivity extends Activity {
         etToken.setText(storage.getAccessToken());
         cbDemoMode.setChecked(storage.isDemoMode());
         cbAbrpEnabled.setChecked(storage.isAbrpEnabled());
+        cbAbrpRouteSync.setChecked(storage.isAbrpRouteSyncEnabled());
         etAbrpToken.setText(storage.getAbrpToken());
         abrpCapacity.check(storage.getAbrpCapacity() < 70 ? R.id.rb_abrp_standard : R.id.rb_abrp_long);
         dialogView.findViewById(R.id.btn_abrp_send).setOnClickListener(v -> {
@@ -2833,8 +2984,10 @@ public final class MainActivity extends Activity {
             }
             storage.setAbrpToken(etAbrpToken.getText().toString());
             storage.setAbrpEnabled(cbAbrpEnabled.isChecked());
+            storage.setAbrpRouteSyncEnabled(cbAbrpRouteSync.isChecked());
             storage.setAbrpCapacity(abrpCapacity.getCheckedRadioButtonId() == R.id.rb_abrp_standard ? 52.4 : 88.5);
             configureAbrpJob(storage.isAbrpEnabled());
+            requestAbrpNotificationPermission(cbAbrpRouteSync.isChecked());
             storage.setDemoMode(cbDemoMode.isChecked() || !storage.hasValidToken());
             if (!storage.isDemoMode() && bleManager.isDemoConnected()) bleManager.disconnect();
             ToggAppWidgetProvider.updateAllWidgets(this);
@@ -2861,6 +3014,11 @@ public final class MainActivity extends Activity {
         enabled.setText("7 dakikada bir ABRP'ye gönder");
         enabled.setChecked(storage.isAbrpEnabled());
         layout.addView(enabled);
+
+        CheckBox routeSync = new CheckBox(this);
+        routeSync.setText("15 dakikada bir ABRP rotasını araca aktar");
+        routeSync.setChecked(storage.isAbrpRouteSyncEnabled());
+        layout.addView(routeSync);
 
         EditText token = new EditText(this);
         token.setHint("ABRP Generic Token");
@@ -2899,8 +3057,10 @@ public final class MainActivity extends Activity {
         dialog.setOnShowListener(d -> dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
             storage.setAbrpToken(token.getText().toString().trim());
             storage.setAbrpEnabled(enabled.isChecked());
+            storage.setAbrpRouteSyncEnabled(routeSync.isChecked());
             storage.setAbrpCapacity(capacity.getCheckedRadioButtonId() == standard.getId() ? 52.4 : 88.5);
             configureAbrpJob(enabled.isChecked());
+            requestAbrpNotificationPermission(routeSync.isChecked());
             renderHomeCards();
             dialog.dismiss();
         }));
@@ -2924,8 +3084,16 @@ public final class MainActivity extends Activity {
     private void configureAbrpJob(boolean enabled) {
         JobScheduler scheduler = (JobScheduler) getSystemService(JOB_SCHEDULER_SERVICE);
         if (scheduler == null) return;
-        if (enabled) { AbrpJobService.scheduleNext(this); }
-        else { scheduler.cancel(AbrpJobService.JOB_ID); }
+        if (enabled) AbrpJobService.scheduleNext(this);
+        else scheduler.cancel(AbrpJobService.JOB_ID);
+        AbrpJobService.scheduleNextRouteCheck(this);
+    }
+
+    private void requestAbrpNotificationPermission(boolean routeEnabled) {
+        if (routeEnabled && Build.VERSION.SDK_INT >= 33
+                && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+            requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, 302);
+        }
     }
 
     private void applyThemeBeforeContent() {
@@ -3004,6 +3172,7 @@ public final class MainActivity extends Activity {
     @Override
     protected void onDestroy() {
         bleManager.removeListener(bleListener);
+        bleManager.removeTelemetryListener(bleTelemetryListener);
         if (instance == this) {
             instance = null;
         }

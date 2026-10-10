@@ -30,3 +30,8 @@ Samsung Galaxy Watch için sıfırdan tasarlanan minimal, saf AMOLED siyah zemin
 - **🔄 Dokunmatik Senkronizasyon & Haptik Titreşim:** Saat üzerinden anında telefondan canlı veri talep edilebilir.
 
 --
+
+## Mühendislik ve Agent Rehberi
+
+Mimari kanallar, operasyonel öğrenimler ve katkı kuralları için [Mühendislik Öğrenimleri ve Agent Rehberi](docs/ENGINEERING_LEARNINGS_AND_AGENT_GUIDE.md) belgesine bakın.
+

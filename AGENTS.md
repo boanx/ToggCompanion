@@ -1,4 +1,4 @@
-# Repository Agent Contract
+﻿# Repository Agent Contract
 
 All agents working in this repository must follow:
 
@@ -6,6 +6,8 @@ All agents working in this repository must follow:
 - `docs/KB_INDEX.md`
 
 ## Knowledge Base Selection
+
+Mimari iletişim kanalları, geçmiş hatalar ve agent çalışma önerileri için [docs/ENGINEERING_LEARNINGS_AND_AGENT_GUIDE.md](docs/ENGINEERING_LEARNINGS_AND_AGENT_GUIDE.md) rehberini de inceleyin. Rehber, bu sözleşme ve KB protokolünün yerine geçmez.
 
 Before using feature knowledge:
 
@@ -82,3 +84,4 @@ EVIDENCE_USED:
 MISSING:
 CONFLICT:
 NOTES:
+

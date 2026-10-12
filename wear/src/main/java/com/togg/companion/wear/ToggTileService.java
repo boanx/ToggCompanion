@@ -38,6 +38,7 @@ public class ToggTileService extends TileService {
     @Override
     protected ListenableFuture<TileBuilders.Tile> onTileRequest(@NonNull RequestBuilders.TileRequest requestParams) {
         WatchTelemetry t = WatchDataStore.getTelemetry(this);
+        boolean hasTelemetry = WatchDataStore.hasTelemetry(this);
 
         // Click on Tile launches the full Watch MainActivity
         ActionBuilders.Action launchAction = new ActionBuilders.LaunchAction.Builder()
@@ -61,33 +62,33 @@ public class ToggTileService extends TileService {
                 .setText("T10F • " + t.getRelativeTimeString())
                 .setFontStyle(new LayoutElementBuilders.FontStyle.Builder()
                         .setSize(DimensionBuilders.sp(12))
-                        .setColor(ColorBuilders.argb(0xFF00C2D6))
+                        .setColor(ColorBuilders.argb(getColor(R.color.accent_blue)))
                         .build())
                 .build();
 
         // 2. Center HV Battery: e.g. "%78  385 km"
-        String chargingSymbol = t.isCharging ? " ⚡" : "";
+        String chargingSymbol = t.isCharging ? " ϟ" : "";
         LayoutElementBuilders.Text socText = new LayoutElementBuilders.Text.Builder()
-                .setText("%" + t.soc + chargingSymbol)
+                .setText(hasTelemetry ? "%" + t.soc + chargingSymbol : "--")
                 .setFontStyle(new LayoutElementBuilders.FontStyle.Builder()
                         .setSize(DimensionBuilders.sp(34))
                         .setWeight(LayoutElementBuilders.FONT_WEIGHT_BOLD)
-                        .setColor(ColorBuilders.argb(t.isCharging ? 0xFF00E676 : 0xFFFFFFFF))
+                        .setColor(ColorBuilders.argb(t.isCharging ? getColor(R.color.status_green) : getColor(R.color.text_primary)))
                         .build())
                 .build();
 
         LayoutElementBuilders.Text rangeText = new LayoutElementBuilders.Text.Builder()
-                .setText(t.rangeKm + " km menzil")
+                .setText(hasTelemetry ? t.rangeKm + " km menzil" : "Menzil verisi yok")
                 .setFontStyle(new LayoutElementBuilders.FontStyle.Builder()
                         .setSize(DimensionBuilders.sp(14))
-                        .setColor(ColorBuilders.argb(0xFF94A3B8))
+                        .setColor(ColorBuilders.argb(0xFFA1A1A1))
                         .build())
                 .build();
 
         // 3. Middle Row: 12V and Tires Badges
-        int color12v = t.batt12vAlert ? 0xFFEF4444 : 0xFF10B981;
+        int color12v = !hasTelemetry ? getColor(R.color.text_muted) : t.batt12vAlert ? getColor(R.color.status_red) : getColor(R.color.status_green);
         LayoutElementBuilders.Text batt12vText = new LayoutElementBuilders.Text.Builder()
-                .setText("12V: %" + t.batt12vSoc)
+                .setText(hasTelemetry ? "12V: %" + t.batt12vSoc : "12V: --")
                 .setFontStyle(new LayoutElementBuilders.FontStyle.Builder()
                         .setSize(DimensionBuilders.sp(12))
                         .setColor(ColorBuilders.argb(color12v))
@@ -98,12 +99,12 @@ public class ToggTileService extends TileService {
                 .setText("  |  ")
                 .setFontStyle(new LayoutElementBuilders.FontStyle.Builder()
                         .setSize(DimensionBuilders.sp(12))
-                        .setColor(ColorBuilders.argb(0xFF64748B))
+                        .setColor(ColorBuilders.argb(0xFF727272))
                         .build())
                 .build();
 
-        int colorTires = t.tiresNormal ? 0xFF10B981 : 0xFFEF4444;
-        String tireStr = t.tiresNormal ? "Lastik: OK" : "Lastik: UYARI";
+        int colorTires = !hasTelemetry ? getColor(R.color.text_muted) : t.tiresNormal ? getColor(R.color.status_green) : getColor(R.color.status_red);
+        String tireStr = !hasTelemetry ? "Lastik: veri yok" : t.tiresNormal ? "Lastik: OK" : "Lastik: UYARI";
         LayoutElementBuilders.Text tiresText = new LayoutElementBuilders.Text.Builder()
                 .setText(tireStr)
                 .setFontStyle(new LayoutElementBuilders.FontStyle.Builder()
@@ -118,16 +119,17 @@ public class ToggTileService extends TileService {
                 .addContent(tiresText)
                 .build();
 
-        // 4. Bottom Location Chip: e.g. "📍 Kadıköy (Araca Yürü)"
-        String locStr = (t.parkAddress != null && !t.parkAddress.isEmpty()) ? t.parkAddress : "Konum Hazır";
+        // 4. Bottom Location Chip: e.g. " Kadıköy (Araca Yürü)"
+        String locStr = hasTelemetry && t.parkAddress != null && !t.parkAddress.isEmpty()
+                ? t.parkAddress : "Araç verisi bekleniyor";
         if (locStr.length() > 22) {
             locStr = locStr.substring(0, 20) + "..";
         }
         LayoutElementBuilders.Text locText = new LayoutElementBuilders.Text.Builder()
-                .setText("📍 " + locStr)
+                .setText(" " + locStr)
                 .setFontStyle(new LayoutElementBuilders.FontStyle.Builder()
                         .setSize(DimensionBuilders.sp(11))
-                        .setColor(ColorBuilders.argb(0xFF3874FF))
+                        .setColor(ColorBuilders.argb(getColor(R.color.accent_blue)))
                         .build())
                 .build();
 

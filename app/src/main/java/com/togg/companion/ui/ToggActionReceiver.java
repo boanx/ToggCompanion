@@ -43,18 +43,21 @@ public class ToggActionReceiver extends BroadcastReceiver {
         VehicleTelemetry latest = dbHelper.getLatest();
 
         VehicleBleManager.VehicleCommand bleCommand = null;
-        if (ACTION_LOCK.equals(action) || "lock".equals(action)) bleCommand = VehicleBleManager.VehicleCommand.LOCK;
-        else if (ACTION_UNLOCK.equals(action) || "unlock".equals(action)) bleCommand = VehicleBleManager.VehicleCommand.UNLOCK;
-        else if (ACTION_TRUNK_TOGGLE.equals(action) || "trunk".equals(action)) bleCommand = VehicleBleManager.VehicleCommand.TRUNK;
+        if (ACTION_LOCK.equals(action) || "lock".equals(action)) {
+            bleCommand = VehicleBleManager.VehicleCommand.LOCK;
+        } else if (ACTION_UNLOCK.equals(action) || "unlock".equals(action)) {
+            bleCommand = VehicleBleManager.VehicleCommand.UNLOCK;
+        } else if ("trunk_open".equals(action)) {
+            bleCommand = VehicleBleManager.VehicleCommand.TRUNK_OPEN;
+        } else if ("trunk_close".equals(action)) {
+            bleCommand = VehicleBleManager.VehicleCommand.TRUNK_CLOSE;
+        } else if (ACTION_TRUNK_TOGGLE.equals(action) || "trunk".equals(action)) {
+            bleCommand = VehicleBleManager.VehicleCommand.TRUNK;
+        }
         else if ("emotor".equals(action) || "emotor_start".equals(action) || "emotor_stop".equals(action)
                 || "start_drive".equals(action) || ACTION_EMOTOR_TOGGLE.equals(action)) {
             boolean ready = "emotor_start".equals(action) || "start_drive".equals(action)
                     || (("emotor".equals(action) || ACTION_EMOTOR_TOGGLE.equals(action)) && latest != null && !latest.isReadyToDrive);
-            DigitalKey key = new DigitalKeyManager(context).getActiveKey();
-            if (ready && key != null && !key.canStartDrive) {
-                Toast.makeText(context, "Bu dijital anahtarın aracı çalıştırma yetkisi yok.", Toast.LENGTH_LONG).show();
-                return;
-            }
             bleCommand = ready ? VehicleBleManager.VehicleCommand.EMOTOR_START : VehicleBleManager.VehicleCommand.EMOTOR_STOP;
         }
         if (bleCommand != null) {
@@ -73,68 +76,12 @@ public class ToggActionReceiver extends BroadcastReceiver {
             return;
         }
 
-        if ("emotor".equals(action) || "emotor_start".equals(action) || "emotor_stop".equals(action)
-                || "start_drive".equals(action) || ACTION_EMOTOR_TOGGLE.equals(action)) {
-            DigitalKey activeKey = new DigitalKeyManager(context).getActiveKey();
-            boolean ready = "emotor_start".equals(action) || "start_drive".equals(action)
-                    || (("emotor".equals(action) || ACTION_EMOTOR_TOGGLE.equals(action)) && latest != null && !latest.isReadyToDrive);
-            if (ready && activeKey != null && !activeKey.canStartDrive) {
-                Toast.makeText(context, "Bu dijital anahtarın aracı çalıştırma yetkisi yok.", Toast.LENGTH_LONG).show();
-                return;
-            }
-            if (latest != null) {
-                latest = latest.withReadyToDrive(ready);
-                dbHelper.insert(latest);
-                WearSyncManager.syncTelemetry(context, latest);
-                Toast.makeText(context, ready ? "Togg T10F: e-Motor Aktif! Araç Sürüşe Hazır (READY) ⚡" : "Togg T10F: e-Motor Kapatıldı", Toast.LENGTH_SHORT).show();
-            }
-            return;
-        }
-
         switch (action) {
-            case ACTION_LOCK:
-                Toast.makeText(context, "Togg T10F: Kapılar Kilitlendi (Rutin) 🔒", Toast.LENGTH_SHORT).show();
-                if (latest != null) {
-                    dbHelper.insert(latest.withLock(true));
-                }
-                break;
-
-            case ACTION_UNLOCK:
-                Toast.makeText(context, "Togg T10F: Kapı Kilitleri Açıldı (Rutin) 🔓", Toast.LENGTH_SHORT).show();
-                if (latest != null) {
-                    dbHelper.insert(latest.withLock(false));
-                }
-                break;
-
             case ACTION_CLIMATE_START:
-                Toast.makeText(context, "Togg T10F: Ön İklimlendirme Başlatıldı ❄️", Toast.LENGTH_SHORT).show();
-                if (latest != null) {
-                    dbHelper.insert(latest.withClimate(22.0, true, false));
-                }
-                break;
-
             case ACTION_CLIMATE_STOP:
-                Toast.makeText(context, "Togg T10F: İklimlendirme Durduruldu", Toast.LENGTH_SHORT).show();
-                if (latest != null) {
-                    dbHelper.insert(latest.withClimate(latest.targetHvacCelsius, false, false));
-                }
-                break;
-
             case ACTION_DEFROST:
-                Toast.makeText(context, "Togg T10F: Ön Cam Rezistansı Açıldı", Toast.LENGTH_SHORT).show();
-                if (latest != null) {
-                    dbHelper.insert(latest.withClimate(latest.targetHvacCelsius, true, true));
-                }
-                break;
-
-            case ACTION_TRUNK_TOGGLE:
-                boolean nowOpen = latest == null || !latest.trunkOpen;
-                Toast.makeText(context, nowOpen ? "Togg T10F: Bagaj Kapağı Açıldı" : "Togg T10F: Bagaj Kapağı Kapatıldı", Toast.LENGTH_SHORT).show();
-                if (latest != null) {
-                    dbHelper.insert(latest.withTrunk(nowOpen));
-                }
-                break;
-
+                Toast.makeText(context, "İklimlendirme ve buğu çözme araçta henüz etkin değil.", Toast.LENGTH_LONG).show();
+                return;
             case ACTION_DRIVE_MODE_ECO:
             case ACTION_DRIVE_MODE_COMFORT:
             case ACTION_DRIVE_MODE_SPORT:
@@ -143,18 +90,11 @@ public class ToggActionReceiver extends BroadcastReceiver {
             case "drive_mode_comfort":
             case "drive_mode_sport":
             case "drive_mode_next":
-                if (latest != null) {
-                    String mode = ACTION_DRIVE_MODE_ECO.equals(action) || "drive_mode_eco".equals(action) ? "Eco"
-                            : ACTION_DRIVE_MODE_SPORT.equals(action) || "drive_mode_sport".equals(action) ? "Sport"
-                            : ACTION_DRIVE_MODE_NEXT.equals(action) || "drive_mode_next".equals(action)
-                                ? ("Eco".equalsIgnoreCase(latest.driveMode) ? "Comfort" : ("Comfort".equalsIgnoreCase(latest.driveMode) ? "Sport" : "Eco"))
-                                : "Comfort";
-                    latest = latest.withDriveMode(mode);
-                    dbHelper.insert(latest);
-                    WearSyncManager.syncTelemetry(context, latest);
-                    Toast.makeText(context, "Togg T10F: Sürüş Modu -> " + ("Sport".equals(mode) ? "Spor ⚡" : ("Comfort".equals(mode) ? "Konfor" : "Eco")), Toast.LENGTH_SHORT).show();
-                }
-                break;
+                Toast.makeText(context, "Sürüş modu kontrolü araçta henüz etkin değil.", Toast.LENGTH_LONG).show();
+                return;
+            default:
+                Toast.makeText(context, "Desteklenmeyen araç işlemi.", Toast.LENGTH_LONG).show();
+                return;
         }
     }
 }

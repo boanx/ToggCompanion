@@ -45,12 +45,11 @@ public final class DigitalKey implements Serializable {
             long createdAtMillis) {
         this.keyId = keyId != null && !keyId.isEmpty() ? keyId : "KEY-" + System.currentTimeMillis();
         this.seId = seId != null ? seId : "";
-        this.vehicleVin = vehicleVin != null ? vehicleVin : "T10F-DEV-001";
-        this.vehiclePlate = vehiclePlate != null ? vehiclePlate : "34 TOGG 10";
+        this.vehicleVin = vehicleVin != null ? vehicleVin : "";
+        this.vehiclePlate = vehiclePlate != null ? vehiclePlate : "";
         this.recipientName = recipientName != null ? recipientName : "Paylaşılan Kullanıcı";
         this.validFromMillis = validFromMillis > 0 ? validFromMillis : System.currentTimeMillis();
-        // Default validity: 30 days if not specified
-        this.validUntilMillis = validUntilMillis > 0 ? validUntilMillis : (System.currentTimeMillis() + 30L * 24 * 3600 * 1000);
+        this.validUntilMillis = Math.max(0, validUntilMillis);
         this.canLock = canLock;
         this.canUnlock = canUnlock;
         this.canStartDrive = canStartDrive;
@@ -66,13 +65,15 @@ public final class DigitalKey implements Serializable {
     }
 
     public boolean isValid() {
-        return isActive && !isExpired() && keyToken != null && !keyToken.isEmpty();
+        return isActive && validUntilMillis > 0 && System.currentTimeMillis() >= validFromMillis
+                && !isExpired() && keyToken != null && !keyToken.isEmpty();
     }
 
     public String getRemainingTimeDisplay() {
         if (isExpired()) {
             return "Süresi Doldu";
         }
+        if (!isActive || validUntilMillis <= 0) return "Aktivasyon bekleniyor";
         long diff = validUntilMillis - System.currentTimeMillis();
         long days = diff / (24L * 3600 * 1000);
         if (days > 1) {
@@ -104,7 +105,16 @@ public final class DigitalKey implements Serializable {
             if (sb.length() > 0) sb.append(", ");
             sb.append("Sürüş");
         }
-        return sb.length() > 0 ? sb.toString() : "Temel Erişim";
+        return sb.length() > 0 ? sb.toString() : "Yetki doğrulanmadı";
+    }
+
+    public String getVehicleDisplay() {
+        boolean hasPlate = !vehiclePlate.trim().isEmpty();
+        boolean hasVin = !vehicleVin.trim().isEmpty();
+        if (hasPlate && hasVin) return vehiclePlate + " (" + vehicleVin + ")";
+        if (hasPlate) return vehiclePlate;
+        if (hasVin) return vehicleVin;
+        return "Araç bilgisi bilinmiyor";
     }
 
     public JSONObject toJson() {
@@ -134,18 +144,18 @@ public final class DigitalKey implements Serializable {
         return new DigitalKey(
                 obj.optString("keyId"),
                 obj.optString("seId"),
-                obj.optString("vehicleVin", "T10F-DEV-001"),
-                obj.optString("vehiclePlate", "34 TOGG 10"),
+                obj.optString("vehicleVin", ""),
+                obj.optString("vehiclePlate", ""),
                 obj.optString("recipientName", "Paylaşılan Kullanıcı"),
                 obj.optLong("validFromMillis", System.currentTimeMillis()),
-                obj.optLong("validUntilMillis", System.currentTimeMillis() + 30L * 24 * 3600 * 1000),
-                obj.optBoolean("canLock", true),
-                obj.optBoolean("canUnlock", true),
-                obj.optBoolean("canStartDrive", true),
-                obj.optBoolean("canClimate", true),
-                obj.optBoolean("canTrunk", true),
+                obj.optLong("validUntilMillis", 0),
+                obj.optBoolean("canLock", false),
+                obj.optBoolean("canUnlock", false),
+                obj.optBoolean("canStartDrive", false),
+                obj.optBoolean("canClimate", false),
+                obj.optBoolean("canTrunk", false),
                 obj.optString("keyToken", ""),
-                obj.optBoolean("isActive", true),
+                obj.optBoolean("isActive", false),
                 obj.optLong("createdAtMillis", System.currentTimeMillis())
         );
     }

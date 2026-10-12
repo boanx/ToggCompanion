@@ -10,25 +10,27 @@ Togg Companion, Togg T10X ve T10F araçları için yerel Android telefon uygulam
 
 ### Kanal 1: BLE Smart Access (Bluetooth LE)
 
-`VehicleBleManager`, kapı kilitleme/açma, bagaj ve immobilizer (motor çalıştırma yetkisi) gibi Smart Access komutlarını BLE GATT üzerinden gönderir. Uygulamadaki UUID'ler:
+`VehicleBleManager`, Smart Access için BLE GATT keşfini yönetir. Trumore 2.1.25 incelemesinde bu UUID literal'leri bulundu; rollerin ve canlı komut frame'lerinin tam eşleşmesi henüz doğrulanmadı. Companion'da kullanılan değerler:
 
 - Service: `f0002412-0451-4000-b000-000000000000`
 - Command characteristic: `f0002413-0451-4000-b000-000000000000`
 
-GATT oturumu `BluetoothDevice.TRANSPORT_LE` ile başlatılmalı; `CONNECTED` durumu servis keşfi ve yazılabilir komut characteristic'i bulunduğunda verilmelidir. `isGattReady()` canlı modda gerçek GATT yazıcısının hazır olduğunu doğrular. Android'in Classic Bluetooth A2DP/HFP eşleşmesi veya `ACTION_ACL_CONNECTED`, Smart Access bağlantısının kanıtı değildir.
+GATT oturumu `BluetoothDevice.TRANSPORT_LE` ile başlatılmalı; `CONNECTED` durumu servis keşfi, yazılabilir characteristic ve başarılı CCCD aboneliğinden sonra verilmelidir. `isGattReady()` taşıma bağlantısını gösterir; araç anahtarının doğrulandığını veya komut göndermeye yetkili bir oturum kurulduğunu göstermez. Android'in Classic Bluetooth A2DP/HFP eşleşmesi veya `ACTION_ACL_CONNECTED`, Smart Access bağlantısının kanıtı değildir.
 
-**BLE Smart Access telemetri taşımaz ve navigasyon hedefi kabul etmez.** Batarya yüzdesi veya rota göndermek için BLE komut protokolünü kullanmaya çalışmayın. Komutun GATT'a gerçekten yazıldığı doğrulanmadan başarı bildirimi veya sahte telemetri üretmeyin. Demo modu, fiziksel araca komut göndermez ve yalnızca açıkça demo olarak sunulan davranışları çalıştırır.
+Orijinal binary'de imzalı SAM araç durum mesajları vardır. Batarya telemetrisi ve navigasyon hedefi için Companion bulut kanallarını kullanır; bunları doğrulanmamış BLE frame'lerine koymayın. GATT'a başarılı yazma araç komutu başarısını kanıtlamaz. Durum mesajı imzası, sayaç, komut sonucu ve komutla eşleşme doğrulanmadan araç durumunu değiştirmeyin. Demo modu yalnızca açıkça simülasyon olarak sunulan davranışları çalıştırır.
+
+Trumore, kullanıcı/VIN'e bağlı Android Keystore EC P-256 anahtarı ve ECDSA imzalama kullanır. Companion artık AndroidKeyStore, sertifika sağlama ve imzalı Smart Access frame/oturum akışını uygular. Kapı/bagaj/e-Motor başlatma yalnız geçerli yetki ve doğrulanmış oturumda gönderilir; sonuç daha yeni imzalı araç durumuyla eşleşmelidir. Fiziksel doğrulama manueldir. Eski A1/A2/A3 paketleri kullanılmaz; READY’den aksesuar moduna dönüş doğrulanmadığı için e-Motor durdurma pasiftir. Güncel kurulum: [Smart Access](SMART_ACCESS_IMPLEMENTATION.md). Davet linki/SE referansı okumak aktif araç anahtarı oluşturmaz. İklimlendirme, sıcaklık, buğu çözme, far ve sürüş modu kontrolleri de devre dışıdır. Ayrıntılı kaynak ve sınırlar: [Trumore APK doğrulaması](TRUMORE_2_1_25_APK_VERIFICATION.md).
 
 ### Kanal 2: Togg Cloud telematics API (eSIM / OTA araç bulutu)
 
 Araçtaki telematik eSIM ile Togg TVA servisi arasındaki iletişim, araç bulutu üzerinden gerçekleşir. Uygulamadaki örnek endpoint'ler:
 
-- Araç telemetrisi: `GET https://superapp-api.channels.togg.cloud/info/api/v2/VehicleInfo?vin=...`
-- Yolculuk/hedef planlama: `POST https://superapp-api.channels.togg.cloud/j/api/PlannedJourneys`
+- Araç telemetrisi: `GET https://tva-api.togg.cloud/info/api/v2/VehicleInfo?vin=...`
+- Yolculuk/hedef planlama: `POST https://navigation-api.togg.cloud/j/api/PlannedJourneys`
 
 İstekler Togg ID oturumundan alınan `Bearer` access token ile yetkilendirilir. Access token süresi dolduğunda `ToggAuthManager` üzerinden tek yenileme denemesi yapılır. HTTP 401 tek başına token süresinin dolduğunu kanıtlamaz: VIN/araç erişim izni (`FriendVehicleInfo` dahil) reddedilmiş olabilir. Yanıtın hata içeriğini ayrıştırın ve araç erişim izni hatasında yenileme döngüsü başlatmayın.
 
-PlannedJourneys, hedefi araç bulutuna iletmek içindir; BLE GATT ile karıştırılmamalıdır. Çok duraklı Gez senaryosunda araç tarafına hedef gönderimi tek hedefle sınırlı kabul edilir; rotanın varış noktası ana hedef olarak iletilir. Birden fazla durak sunuluyorsa ara durakları ayrı kullanıcı aksiyonları olarak gösterin ve API payload'ında desteklenmeyen davranış varsaymayın.
+PlannedJourneys POST çağrısı ve PlannedJourneyRequest serializer'ı orijinal AOT kodundan geri kazanıldı. Gövde `startingPoint`, `arrivalPoint`, `waypoints`; her nokta `geoLocation: {latitude, longitude}` ve `address: {label, ...}` içerir. Eski `vin/destination/stops` şeması kullanılmaz. İlk/son rota noktalarını ara durak listesinde tekrar etmeyin. Bilinmeyen başlangıç serializer gibi atlanır; backend kabulü ve aktif araca teslim henüz çalışma zamanında doğrulanmadı. HTTP 2xx sonucunu Cloud kabulü olarak bildirin.
 
 ### Kanal 3: Trumore Smart Bridge / app-to-app redirection
 
@@ -39,7 +41,7 @@ Trumore yönlendirmesinde kullanılan örnekler:
 
 `GezRouteBridge`, ilgili derin bağlantıları ve HTTPS konum paylaşımını uygun Android `ACTION_VIEW` intent'leriyle açar. Bu yol Trumore'un yüklü/oturum açılmış olduğu durumlarda yerel köprü veya fallback olarak kullanılabilir. Uygulama/oturum mevcudiyeti ve çevrimdışı davranışı her cihazda doğrulanmış bir garanti saymayın; açma sonucunu kontrol edin ve kullanıcıya gerçek sonucu bildirin.
 
-Salt `ShareLocation` bağlantısı Gez konum önizlemesini açabilir ve kullanıcıdan “Git” ile ardından “Konumu akıllı cihazıma aktar” adımlarını bekleyebilir. Tek tıkla bulut iletimi istendiğinde, uygulamadaki Togg Cloud PlannedJourneys akışını kullanın; Trumore yönlendirmesini desteklenebilir fallback olarak saklayın.
+Salt `ShareLocation` bağlantısı Gez konum önizlemesini açabilir ve kullanıcıdan “Git” ile ardından “Konumu akıllı cihazıma aktar” adımlarını bekleyebilir. Companion içinden doğrudan aktarımda Togg Cloud PlannedJourneys akışını kullanın. Manuel gönderim başarısız olduğunda Trumore açılmaz; ayrı deep-link yardımcıları yalnız açık uygulama açma işlemlerinde kullanılmalıdır. Güncel akış `docs/DIRECT_VEHICLE_ROUTE_TRANSFER.md` içindedir.
 
 ## 3. Geçmiş hatalar ve kaçınılacak anti-pattern'ler
 
@@ -49,15 +51,15 @@ Android `ACTION_ACL_CONNECTED`, A2DP/HFP medya veya eller serbest eşleşmesini 
 
 ### Tuzak 2: Navigasyon veya konumu BLE ile göndermeye çalışmak
 
-Smart Access GATT karakteristiği konum/navigasyon API'si değildir. Araç navigasyon hedeflerini BLE komutlarıyla taşımaya çalışmayın. Desteklenen akışta hedef PlannedJourneys üzerinden Togg Cloud'a gider; gerektiğinde Trumore deep link'i devreye girer.
+Smart Access GATT karakteristiği konum/navigasyon API'si değildir. Araç navigasyon hedeflerini BLE komutlarıyla taşımaya çalışmayın. Desteklenen doğrudan akışta hedef PlannedJourneys üzerinden Togg Cloud'a gider; hata Companion içinde gösterilir ve otomatik deep link açılmaz.
 
 ### Tuzak 3: Trumore önizleme sayfasını doğrudan araç aktarımı sanmak
 
 `ShareLocation` URL'sini açmak, otomatik olarak aracın hedefi aldığı anlamına gelmez; Gez önizleme ekranı ek kullanıcı adımları isteyebilir. Ürün gereksinimi buluta doğrudan iletim ise Togg Cloud API sonucunu bekleyin ve başarıyı yalnızca callback/yanıt başarılı olduğunda gösterin. Fallback açılması ile Cloud gönderim başarısını aynı durum olarak raporlamayın.
 
-### Tuzak 4: Çok duraklı Gez rotasını tek seferde aktarılabilir varsaymak
+### Tuzak 4: Gez hedef aktarımı şemasını doğrulanmış varsaymak
 
-Gez/araç hedef aktarımında tek hedef sınırını dikkate alın. Çok duraklı rotada varış hedefini ana hedef olarak kullanın; ara durakları listede ayrı `⚡ Araca İlet` aksiyonları olarak sunun. Harita navigasyonunun tüm rotayı açması, aracın tüm durakları bulut üzerinden aldığı anlamına gelmez.
+PlannedJourneyRequest alanları AOT çağrı zinciriyle doğrulandı; çalışma zamanı teslim koşulları hâlâ açık. Harita navigasyonunun tüm rotayı açması veya Cloud HTTP 2xx yanıtı, aracın tüm durakları ekranında aldığı anlamına gelmez.
 
 ### Tuzak 5: Her HTTP 401'de token'ı yenileyip sonsuz döngüye girmek
 
@@ -81,8 +83,16 @@ ABRP entegrasyonunda iki bağımsız zamanlama bulunur:
 `AbrpClient` ABRP iletişimini/parsing'i, `AbrpJobService` arka plan işlerini, `SecureTokenStorage` ise rota senkronizasyon tercihi ile son gönderilen durak bilgisini yönetir. Bir iş tamamlandığında sonraki tek seferlik işi planlama yaklaşımını koruyun; telemetri gönderim aralığını rota takibi için değiştirmeyin. Yeni durak araca gönderildiğinde Android bildirimi gösterilir. İşletim sistemi zamanlaması ve pil kısıtlamaları nedeniyle JobScheduler'ın tam dakika hassasiyetinde çalışacağını garanti etmeyin.
 
 Rota takibini ayarlardan ayrı olarak açıp kapatın. Hedef değişimi koordinat anahtarı üzerinden karşılaştırılmalı; token/izin veya ağ hatasında bildirim ve fallback sonucu dürüstçe raporlanmalıdır.
+Trumore fallback intent'inin açılması araç hedefinin iletildiğini kanıtlamaz; başarısız Togg Cloud gönderiminde durak anahtarını “gönderildi” olarak kaydetmeyin ve sonraki kontrolde yeniden deneyin.
 
-## 5. Gelecekteki geliştiriciler ve agent'lar için çalışma kuralları
+## 5. Konum, saat eşitlemesi ve devre dışı kontroller
+
+- Bilinmeyen araç koordinatları `0,0` olarak kalır. Demo veya eksik API yanıtları gerçek konum gibi Ankara/Kadıköy koordinatları üretmemelidir. Dashboard, widget, saat ve action shortcut navigasyonu yalnızca doğrulanmış/saklanmış araç koordinatıyla başlatır.
+- Saat ilk telemetriyi almadan batarya, lastik ve araç konumu için örnek değer göstermemelidir. Saatteki yenileme isteği telefon üzerinden Togg API'den canlı telemetri ister; bağlantı/API hatasında önbellek kullanılabilir ve zaman damgası eski veriyi belli eder.
+- Saat konum sağlayıcısı yalnızca ekran görünürken dinlenir; `onStop` aşamasında güncellemeler kaldırılır ve kullanıcı izin verince tekrar başlatılır.
+- İklimlendirme, defrost, far ve sürüş modu yerel durumu değiştiren kontroller olarak sunulmaz. Yeni bir gerçek araç komut yolu eklendiğinde önce yetki/geri bildirim sonucu doğrulanmalıdır.
+
+## 6. Gelecekteki geliştiriciler ve agent'lar için çalışma kuralları
 
 1. Önce `AGENTS.md`, `docs/KB_PROTOCOL.md` ve `docs/KB_INDEX.md` talimatlarını okuyun. Feature bilgisi gerekiyorsa indeksin yönlendirdiği en küçük KB kapsamını seçin; IDMAP, KG adjacency ve ilgili FACTS kayıtlarını kullanın. Kanıtlanmamış araç davranışı eklemeyin.
 2. Dar kapsamlı değişiklik yapın. Kullanıcıya görünen başarı metnini yalnızca gerçek API/GATT sonucuna dayandırın. Secret/token değerlerini loglara veya dokümana yazmayın.
@@ -91,10 +101,14 @@ Rota takibini ayarlardan ayrı olarak açıp kapatın. Hedef değişimi koordina
 5. APK teslimi istenen bir görevde `./gradlew.bat assembleDebug` çalıştırın ve güncel APK'yı `C:\Users\aozyurt\Documents\AG\TOGG_Asistan.apk` konumuna kopyalayın. Kopyalamanın başarılı olduğunu dosya varlığı/boyutuyla doğrulayın. Bu kılavuz tek başına her kod değişikliğinde APK kopyalamayı zorunlu kılmaz; görev paketinin teslim koşulunu izleyin.
 6. Git commit/rebase/push işlemlerinde önce branch ve working tree'yi inceleyin. Mevcut kullanıcı değişikliklerini koruyun, istenen kapsam dışında dosyaları eklemeyin ve son durumda branch durumunu raporlayın.
 
-## 6. İlgili kaynaklar
+## 7. İlgili kaynaklar
 
 - [Repository agent contract](../AGENTS.md)
 - [Knowledge Base index](KB_INDEX.md)
 - [Knowledge Base protocol](KB_PROTOCOL.md)
 - [Togg Companion feature facts](togg-companion/FACTS.jsonl)
 
+
+## 12 Ekim 2026 HTTP 301 düzeltmesi
+
+Rota yolu için alan adı navigasyon API’sine düzeltildi. Kaynak kod güncel; mevcut APK yeniden derlenmedi ve bu düzeltmeyi içermiyor. Kanıt ve durum: [HTTP301_ROUTE_FIX.md](HTTP301_ROUTE_FIX.md).

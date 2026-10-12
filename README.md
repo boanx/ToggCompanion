@@ -2,6 +2,18 @@
 
 Samsung telefonlar ve Samsung Galaxy Watch (Wear OS 3/4/5) akıllı saatler için Togg T10F araçlarına özel geliştirilmiş hafif, batarya dostu ve AMOLED siyah temalı yerel yardımcı ekosistem.
 
+## Güncel durum — 12 Ekim 2026
+
+Smart Access sertifika/imzalı BLE oturumu, doğrudan rota aktarımı ve pastel OLED
+Glass görünümü kaynak kodda uygulanmıştır. Rota aktarımındaki HTTP 301 için
+navigasyon API alan adı düzeltilmiştir. Fiziksel araç doğrulaması manueldir.
+
+**Kaynak kod son APK'den ileridedir:** HTTP 301 düzeltmesi ve pastel tema henüz
+APK'ye alınmamıştır. Kullanıcı açıkça istemeden yeni APK derlenmez. Bu commit
+kaynak/doküman güncellemesidir; APK/release yayını değildir.
+
+Detaylar: [Güncel proje durumu](docs/PROJECT_STATUS_2026_10_12.md).
+
 ---
 
 ## ⌚ FAZ 2: Samsung Galaxy Watch (Wear OS) Akıllı Saat Uygulaması

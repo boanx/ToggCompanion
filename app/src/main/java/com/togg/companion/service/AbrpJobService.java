@@ -88,14 +88,13 @@ public class AbrpJobService extends JobService {
                 new TvaApiClient(storage).sendDestinationToVehicle(stop.lat, stop.lon, stop.name, new TvaApiClient.DestinationCallback() {
                     @Override public void onSuccess(String message) {
                         storage.setAbrpLastDispatchedStop(key); storage.setAbrpActiveStopName(stop.name);
-                        postRouteNotification(stop.name, "Yeni ABRP durağı aracınıza iletildi.");
+                        postRouteNotification(stop.name, message);
                         scheduleNextRouteCheck(AbrpJobService.this); jobFinished(params, false);
                     }
                     @Override public void onError(String message) {
                         boolean fallbackOpened = GezRouteBridge.openCarDisplayDirections(AbrpJobService.this, stop.lat, stop.lon, stop.name);
                         if (fallbackOpened) {
-                            storage.setAbrpLastDispatchedStop(key); storage.setAbrpActiveStopName(stop.name);
-                            postRouteNotification(stop.name, "Togg Cloud kullanılamadı; Trumore Gez açıldı.");
+                            postRouteNotification(stop.name, "Togg Cloud gönderimi başarısız; Trumore açıldı. Hedefin araca aktarıldığını kontrol edin.");
                         } else postRouteNotification(stop.name, "Rota bulundu ancak araca gönderilemedi: " + message);
                         scheduleNextRouteCheck(AbrpJobService.this); jobFinished(params, false);
                     }

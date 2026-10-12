@@ -41,19 +41,20 @@ public final class WatchTelemetry implements Serializable {
         this.latitude = latitude;
         this.longitude = longitude;
         this.parkAddress = parkAddress != null ? parkAddress : "Konum alınıyor...";
-        this.timestamp = timestamp > 0 ? timestamp : System.currentTimeMillis();
+        this.timestamp = Math.max(0, timestamp);
     }
 
     public static WatchTelemetry createDefault() {
         return new WatchTelemetry(
-                78, 385, false, 0.0,
-                88, false, true, "Normal (36 PSI)",
-                40.9901, 29.0292, "Kadıköy, İstanbul",
-                System.currentTimeMillis()
+                0, 0, false, 0.0,
+                0, false, true, "Henüz senkronize edilmedi",
+                0.0, 0.0, "Araç verisi telefondan bekleniyor",
+                0
         );
     }
 
     public String getRelativeTimeString() {
+        if (timestamp <= 0) return "Henüz senkronize edilmedi";
         long diff = Math.max(0, System.currentTimeMillis() - timestamp);
         long minutes = diff / (60 * 1000);
         if (minutes < 1) return "Az önce";

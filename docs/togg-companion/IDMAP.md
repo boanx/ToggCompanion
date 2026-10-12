@@ -69,6 +69,35 @@ Implemented native Android companion phone application (`app/`) and Wear OS Gala
 - `F61` = `app/src/main/java/com/togg/companion/core/GezRouteBridge.java`
 - `F62` = `app/src/test/java/com/togg/companion/core/GezRouteBridgeTest.java`
 - `F63` = `app/src/test/java/com/togg/companion/core/VehicleBleManagerTest.java`
+- `F64` = `docs/TRUMORE_2_1_25_APK_VERIFICATION.md`
+- `F65` = `app/src/test/java/com/togg/companion/data/remote/TvaApiClientTest.java`
+- `F66` = `app/src/main/java/com/togg/companion/core/SmartAccessKeyStore.java`
+- `F67` = `app/src/main/java/com/togg/companion/core/SmartAccessCertificate.java`
+- `F68` = `app/src/main/java/com/togg/companion/core/SmartAccessProtocol.java`
+- `F69` = `app/src/main/java/com/togg/companion/core/SmartAccessSession.java`
+- `F70` = `app/src/main/java/com/togg/companion/data/remote/SmartAccessCertificateClient.java`
+- `F71` = `app/src/main/java/com/togg/companion/ui/SmartAccessSetupDialog.java`
+- `F72` = `app/src/test/java/com/togg/companion/core/SmartAccessKeyStoreTest.java`
+- `F73` = `app/src/test/java/com/togg/companion/core/SmartAccessCertificateTest.java`
+- `F74` = `app/src/test/java/com/togg/companion/core/SmartAccessProtocolTest.java`
+- `F75` = `app/src/test/java/com/togg/companion/core/SmartAccessSessionTest.java`
+- `F76` = `app/src/test/java/com/togg/companion/data/remote/SmartAccessCertificateClientTest.java`
+- `F77` = `docs/SMART_ACCESS_IMPLEMENTATION.md`
+
+- `F78` = `app/src/main/res/color/glass_text.xml`
+- `F79` = `app/src/main/res/drawable/ic_lock_glass.xml`
+- `F80` = `app/src/main/res/drawable/ic_trunk_glass.xml`
+- `F81` = `wear/src/main/res/values/styles.xml`
+- `F82` = `docs/OLED_GLASS_DESIGN.md`
+- `F83` = `app/src/main/res/drawable/`
+- `F84` = `wear/src/main/res/drawable/`
+
+- `F85` = `app/src/main/java/com/togg/companion/ui/VehicleRouteDialog.java`
+- `F86` = `docs/DIRECT_VEHICLE_ROUTE_TRANSFER.md`
+
+- `F87` = `docs/HTTP301_ROUTE_FIX.md`
+
+- `F88` = `docs/PROJECT_STATUS_2026_10_12.md`
 
 ## Entity IDs
 
@@ -98,6 +127,9 @@ Implemented native Android companion phone application (`app/`) and Wear OS Gala
 - `C9` = Trumore Gez route parsing and deep link dispatch
 - `T5` = Gez route bridge unit tests
 - `T6` = Vehicle BLE manager readiness unit tests
+- `T7` = Original PlannedJourneyRequest JSON shape unit tests
+- `C10` = Smart Access AndroidKeyStore and authenticated certificate provisioning
+- `T8` = Smart Access cryptography, certificate, protocol, session and HTTP composition JVM tests
 
 ## Predicate vocabulary
 

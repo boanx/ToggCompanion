@@ -8,6 +8,12 @@ import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
 public class VehicleBleManagerTest {
+    @Test public void transportReadinessDoesNotAuthorizeUnverifiedLiveCommands() {
+        assertTrue(VehicleBleManager.isGattReady(false, VehicleBleManager.ConnectionState.CONNECTED, true));
+        assertNotNull(VehicleBleManager.getCommandAccessError(false, false));
+        assertNull(VehicleBleManager.getCommandAccessError(true, false));
+        assertNull(VehicleBleManager.getCommandAccessError(false, true));
+    }
     @Test public void liveConnectionWithoutGattCharacteristicIsNotReadyAndHasHelpfulError() {
         assertFalse(VehicleBleManager.isGattReady(false, VehicleBleManager.ConnectionState.CONNECTED, false));
         String error = VehicleBleManager.getCommandGattError(false);

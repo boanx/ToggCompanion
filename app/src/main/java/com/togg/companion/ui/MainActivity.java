@@ -85,10 +85,9 @@ public final class MainActivity extends Activity {
     @Override
     protected void attachBaseContext(android.content.Context newBase) {
         SecureTokenStorage prefs = new SecureTokenStorage(newBase);
-        String theme = prefs.getAppTheme();
         android.content.res.Configuration config = new android.content.res.Configuration(newBase.getResources().getConfiguration());
-        if ("dark".equals(theme)) config.uiMode = (config.uiMode & ~android.content.res.Configuration.UI_MODE_NIGHT_MASK) | android.content.res.Configuration.UI_MODE_NIGHT_YES;
-        else if ("light".equals(theme)) config.uiMode = (config.uiMode & ~android.content.res.Configuration.UI_MODE_NIGHT_MASK) | android.content.res.Configuration.UI_MODE_NIGHT_NO;
+        config.uiMode = (config.uiMode & ~android.content.res.Configuration.UI_MODE_NIGHT_MASK)
+                | android.content.res.Configuration.UI_MODE_NIGHT_YES;
         super.attachBaseContext(newBase.createConfigurationContext(config));
     }
 
@@ -206,6 +205,18 @@ public final class MainActivity extends Activity {
     private ImageView ivEmotorIcon;
     private TextView tvBleStatus;
     private VehicleBleManager bleManager;
+    private AlertDialog smartAccessSetupDialog;
+    private final VehicleBleManager.OnAccessStateChangeListener accessListener = state -> runOnUiThread(() -> {
+        if (isFinishing() || isDestroyed()) return;
+        com.togg.companion.core.SmartAccessProtocol.RawStatus signed = bleManager.getSmartAccessStatus();
+        if (signed != null) {
+            if (signed.lockState != com.togg.companion.core.SmartAccessProtocol.LockState.INIT_STATE)
+                isDoorLocked = signed.lockState == com.togg.companion.core.SmartAccessProtocol.LockState.CLOSED;
+            isTrunkOpen = signed.ajarTrunkLid;
+            updateDoorUi(); updateTrunkUi();
+        }
+        updateBleStatus(); updateEmotorCard(); renderDigitalKeyCard();
+    });
     private final VehicleBleManager.OnBleStateChangeListener bleListener = state -> {
         updateBleStatus();
         String error = bleManager == null ? null : bleManager.getConnectionError();
@@ -236,6 +247,7 @@ public final class MainActivity extends Activity {
         bleManager = VehicleBleManager.getInstance(this);
         bleManager.addListener(bleListener);
         bleManager.addTelemetryListener(bleTelemetryListener);
+        bleManager.addAccessListener(accessListener);
         applyThemeBeforeContent();
         setContentView(R.layout.activity_main);
         dbHelper = new TelemetryDatabaseHelper(this);
@@ -257,10 +269,15 @@ public final class MainActivity extends Activity {
         // Load cached telemetry if present, otherwise fetch fresh/demo data
         VehicleTelemetry cached = dbHelper.getLatest();
         if (cached != null) {
-            if (cached.latitude != 0.0 && (cached.latitude != 39.925054 || !storage.hasSavedLocation())) {
+            boolean oldDemoLocation = cached.latitude == 39.925054 && cached.longitude == 32.834755
+                    && (cached.parkAddress == null || cached.parkAddress.toLowerCase(Locale.ROOT).contains("belirleniyor"));
+            if (hasUsableCoordinates(cached.latitude, cached.longitude) && !oldDemoLocation) {
                 storage.saveLastLocation(cached.latitude, cached.longitude, cached.parkAddress);
-            } else if (storage.hasSavedLocation()) {
+            } else if (storage.hasSavedLocation() && !(oldDemoLocation
+                    && storage.getLastLat() == 39.925054 && storage.getLastLon() == 32.834755)) {
                 cached = cached.withLocation(storage.getLastLat(), storage.getLastLon(), storage.getLastAddress());
+            } else if (oldDemoLocation) {
+                cached = cached.withLocation(0.0, 0.0, "Aracın konumu mevcut değil");
             }
             currentTelemetry = cached;
             isDoorLocked = cached.isLocked;
@@ -331,6 +348,7 @@ public final class MainActivity extends Activity {
         tvVehicleTitle.setClickable(true);
         tvVehicleTitle.setFocusable(true);
         tvVehicleTitle.setOnClickListener(v -> showEditVehicleNameDialog());
+        findViewById(R.id.btn_send_route).setOnClickListener(v -> showSendToGezDialog(null));
         tvVehiclePlate = findViewById(R.id.tv_vehicle_plate);
         tvVehicleVin = findViewById(R.id.tv_vehicle_vin);
         tvAppRefreshTime = findViewById(R.id.tv_app_refresh_time);
@@ -405,7 +423,8 @@ public final class MainActivity extends Activity {
 
         // Page 6: Sürüş İstatistikleri
         tvDriveMode = findViewById(R.id.tv_drive_mode);
-        tvDriveMode.setOnClickListener(v -> showDriveModeSelector());
+        tvDriveMode.setClickable(false);
+        tvDriveMode.setFocusable(false);
         tvOdometer = findViewById(R.id.tv_odometer);
         tvTripDist = findViewById(R.id.tv_trip_dist);
         tvTripDur = findViewById(R.id.tv_trip_dur);
@@ -514,11 +533,10 @@ public final class MainActivity extends Activity {
         // Page 5: Dijital Anahtar Actions
         if (btnCopyKeyToWatch != null) {
             btnCopyKeyToWatch.setOnClickListener(v -> {
-                DigitalKeyManager keyMgr = new DigitalKeyManager(this);
-                DigitalKey key = keyMgr.getActiveKey();
+                DigitalKey key = getRelayKey();
                 if (key != null && key.isValid()) {
                     WearSyncManager.syncDigitalKey(this, key);
-                    Toast.makeText(this, "Dijital anahtar Samsung Galaxy Watch'a aktarılıyor... ⌚", Toast.LENGTH_SHORT).show();
+                    Toast.makeText(this, "Smart Access erişim bilgisi saate aktarılıyor; komutlar telefondan gönderilir.", Toast.LENGTH_SHORT).show();
                 } else {
                     showManageDigitalKeyDialog();
                 }
@@ -529,15 +547,12 @@ public final class MainActivity extends Activity {
             btnManageDigitalKey.setOnClickListener(v -> showManageDigitalKeyDialog());
         }
 
-        // Vehicle Controls: Climate Temp Minus / Plus
-        btnTempMinus.setOnClickListener(v -> adjustTargetTemperature(-0.5));
-        btnTempPlus.setOnClickListener(v -> adjustTargetTemperature(0.5));
-
-        // Vehicle Controls: Climate Toggle
-        btnClimateToggle.setOnClickListener(v -> toggleClimate());
-
-        // Vehicle Controls: Defrost Toggle
-        btnDefrost.setOnClickListener(v -> toggleDefrost());
+        // Remote HVAC controls are unavailable until the vehicle exposes a supported command API.
+        btnTempMinus.setEnabled(false);
+        btnTempPlus.setEnabled(false);
+        btnClimateToggle.setEnabled(false);
+        btnDefrost.setEnabled(false);
+        updateClimateUi();
 
         // Page 7: Walk to Car Map Navigation
         if (btnWalkToCar != null) {
@@ -592,13 +607,13 @@ public final class MainActivity extends Activity {
     private void openNavigationToCar() {
         double lat = currentTelemetry != null ? currentTelemetry.latitude : storage.getLastLat();
         double lon = currentTelemetry != null ? currentTelemetry.longitude : storage.getLastLon();
-        if (lat == 0.0 && lon == 0.0) {
+        if (!hasUsableCoordinates(lat, lon) && storage.hasSavedLocation()) {
             lat = storage.getLastLat();
             lon = storage.getLastLon();
         }
-        if (lat == 0.0 && lon == 0.0) {
-            lat = 39.925054;
-            lon = 32.834755;
+        if (!hasUsableCoordinates(lat, lon)) {
+            Toast.makeText(this, "Aracın kayıtlı konumu yok; navigasyon başlatılamadı.", Toast.LENGTH_LONG).show();
+            return;
         }
         Uri gmmIntentUri = Uri.parse("geo:" + lat + "," + lon + "?q=" + lat + "," + lon + "(Togg T10F Park Yeri)");
         Intent mapIntent = new Intent(Intent.ACTION_VIEW, gmmIntentUri);
@@ -611,16 +626,14 @@ public final class MainActivity extends Activity {
         }
     }
 
+    private static boolean hasUsableCoordinates(double lat, double lon) {
+        return Double.isFinite(lat) && Double.isFinite(lon)
+                && lat >= -90.0 && lat <= 90.0 && lon >= -180.0 && lon <= 180.0
+                && !(lat == 0.0 && lon == 0.0);
+    }
+
     public void toggleHeadlights() {
-        isHeadlightsOn = !isHeadlightsOn;
-        storage.setHeadlightsOn(isHeadlightsOn);
-        if (currentTelemetry != null) {
-            currentTelemetry = currentTelemetry.withHeadlights(isHeadlightsOn);
-            dbHelper.insert(currentTelemetry);
-        }
-        updateHeroCarVisual();
-        renderQuickActionsBar();
-        Toast.makeText(this, isHeadlightsOn ? "💡 Farlar Açıldı" : "💡 Farlar Kapatıldı", Toast.LENGTH_SHORT).show();
+        Toast.makeText(this, "Far kontrolü araçta henüz etkin değil.", Toast.LENGTH_SHORT).show();
     }
 
     private void updateHeroCarVisual() {
@@ -633,7 +646,7 @@ public final class MainActivity extends Activity {
         llQuickActionsRow.removeAllViews();
         String[] keys = {"lock", "trunk"};
         String[] labels = {"Kap\u0131 Kilidi", "Bagaj"};
-        String[] icons = {"\uD83D\uDD12", "\uD83D\uDE97"};
+        int[] icons = {R.drawable.ic_lock_glass, R.drawable.ic_trunk_glass};
         String[] actions = storage.getQuickActionsOrder().split(",");
         for (String raw : actions) {
             String act = raw.trim().toLowerCase(Locale.ROOT);
@@ -642,13 +655,21 @@ public final class MainActivity extends Activity {
             LinearLayout item = new LinearLayout(this);
             item.setOrientation(LinearLayout.VERTICAL);
             item.setGravity(Gravity.CENTER_HORIZONTAL);
-            LinearLayout.LayoutParams itemLp = new LinearLayout.LayoutParams(dpToPx(62), ViewGroup.LayoutParams.WRAP_CONTENT);
-            itemLp.setMargins(dpToPx(16), 0, dpToPx(16), 0); item.setLayoutParams(itemLp);
-            TextView icon = new TextView(this); icon.setText(icons[index]); icon.setTextSize(21); icon.setGravity(Gravity.CENTER);
-            icon.setBackgroundResource(R.drawable.btn_action_circle);
-            item.addView(icon, new LinearLayout.LayoutParams(dpToPx(52), dpToPx(52)));
-            TextView label = new TextView(this); label.setText(labels[index]); label.setTextSize(9); label.setTextColor(getColor(R.color.text_secondary)); label.setGravity(Gravity.CENTER); label.setPadding(0, dpToPx(3), 0, 0);
+            LinearLayout.LayoutParams itemLp = new LinearLayout.LayoutParams(dpToPx(100), ViewGroup.LayoutParams.WRAP_CONTENT);
+            itemLp.setMargins(dpToPx(8), 0, dpToPx(8), 0); item.setLayoutParams(itemLp);
+            FrameLayout iconSurface = new FrameLayout(this);
+            iconSurface.setBackgroundResource(R.drawable.btn_action_circle);
+            ImageView glyph = new ImageView(this);
+            glyph.setImageResource(icons[index]);
+            FrameLayout.LayoutParams glyphLp = new FrameLayout.LayoutParams(dpToPx(24), dpToPx(24), Gravity.CENTER);
+            iconSurface.addView(glyph, glyphLp);
+            View icon = iconSurface;
+            item.addView(icon, new LinearLayout.LayoutParams(dpToPx(64), dpToPx(64)));
+            TextView label = new TextView(this); label.setText(labels[index]); label.setTextSize(12); label.setTextColor(getColor(R.color.text_secondary)); label.setGravity(Gravity.CENTER); label.setPadding(0, dpToPx(8), 0, 0);
             item.addView(label);
+            icon.setOnClickListener(v -> dispatchQuickAction(act));
+            icon.setContentDescription(labels[index]);
+            icon.setFocusable(true);
             item.setOnClickListener(v -> dispatchQuickAction(act));
             llQuickActionsRow.addView(item);
         }
@@ -657,19 +678,21 @@ public final class MainActivity extends Activity {
 
     private void updateEmotorCard() {
         boolean connected = bleManager != null && bleManager.isConnected();
-        boolean ready = currentTelemetry != null && (currentTelemetry.isReadyToDrive
-                || (currentTelemetry.currentTrip != null && currentTelemetry.currentTrip.avgSpeed > 0)
-                || currentTelemetry.lastTripAvgSpeed > 0);
+        boolean authorized = bleManager != null && bleManager.isCommandReady();
+        boolean ready = isReadyToDriveNow();
         int color;
         String state;
         if (!connected) {
-            color = 0xFF94A3B8;
+            color = getColor(R.color.text_muted);
             state = "Bluetooth Bağlı Değil";
+        } else if (!authorized) {
+            color = getColor(R.color.status_amber);
+            state = "Smart Access yetkilendirmesi gerekli";
         } else if (!ready) {
-            color = 0xFFFFB800;
-            state = "Aksesuar Modu";
+            color = getColor(R.color.text_secondary);
+            state = "READY doğrulanmadı";
         } else {
-            color = 0xFF10B981;
+            color = getColor(R.color.status_green);
             state = "Sürüş Modu (READY)";
         }
         if (tvEmotorState != null) {
@@ -682,13 +705,13 @@ public final class MainActivity extends Activity {
     private void dispatchQuickAction(String action) {
         switch (action) {
             case "lock": toggleDoorLock(); break;
-            case "headlights": toggleHeadlights(); break;
             case "trunk": confirmAndToggleTrunk(); break;
-            case "climate": toggleClimate(); break;
-            case "defrost": toggleDefrost(); break;
             case "locate": openNavigationToCar(); break;
-            case "drive_mode": showDriveModeSelector(); break;
-            default: Toast.makeText(this, action + " komutu gï¿½nderildi.", Toast.LENGTH_SHORT).show(); break;
+            case "climate": case "defrost":
+                Toast.makeText(this, "İklimlendirme kontrolü araçta henüz etkin değil.", Toast.LENGTH_SHORT).show(); break;
+            case "headlights": case "drive_mode":
+                Toast.makeText(this, "Bu araç kontrolü henüz etkin değil.", Toast.LENGTH_SHORT).show(); break;
+            default: Toast.makeText(this, "Desteklenmeyen araç işlemi.", Toast.LENGTH_SHORT).show(); break;
         }
     }
 
@@ -718,13 +741,8 @@ public final class MainActivity extends Activity {
         String orderStr = storage.getQuickActionsOrder();
         List<String> currentOrder = new ArrayList<>(Arrays.asList(orderStr.split(",")));
         Map<String, String> nameMap = new LinkedHashMap<>();
-        nameMap.put("emotor", "⚡ e-Motor");
-        nameMap.put("headlights", "💡 Far Kontrolü");
-        nameMap.put("lock", "🔒 Kapı Kilidi");
-        nameMap.put("trunk", "🚗 Bagaj Kapağı");
-        nameMap.put("climate", "❄️ Klima Aç/Kapat");
-        nameMap.put("defrost", "♨️ Ön Cam Buğu");
-        nameMap.put("locate", "🧭 Haritada Aracı Bul");
+        nameMap.put("lock", " Kapı Kilidi");
+        nameMap.put("trunk", " Bagaj Kapağı");
 
         List<ActionItem> items = new ArrayList<>();
         for (String k : currentOrder) {
@@ -742,7 +760,7 @@ public final class MainActivity extends Activity {
         }
 
         AlertDialog.Builder builder = new AlertDialog.Builder(this);
-        builder.setTitle("⚡ Hızlı Komut Buton Sıralaması");
+        builder.setTitle("ϟ Hızlı Komut Buton Sıralaması");
 
         ScrollView sv = new ScrollView(this);
         LinearLayout listLayout = new LinearLayout(this);
@@ -823,11 +841,27 @@ public final class MainActivity extends Activity {
     }
 
     private void toggleDoorLock() {
-        sendVehicleCommand(isDoorLocked ? VehicleBleManager.VehicleCommand.UNLOCK : VehicleBleManager.VehicleCommand.LOCK);
+        executeDigitalKeyAction(isDoorLocked ? "unlock" : "lock");
     }
 
     private boolean requireBleConnection() {
-        if (bleManager.isConnected()) return true;
+        if (bleManager.isCommandReady()) return true;
+        VehicleBleManager.AccessState access = bleManager.getAccessState();
+        if (access == VehicleBleManager.AccessState.COMMAND_PENDING
+                || access == VehicleBleManager.AccessState.AUTHENTICATING
+                || access == VehicleBleManager.AccessState.PREPARING_KEY
+                || access == VehicleBleManager.AccessState.FETCHING_CERTIFICATE) {
+            Toast.makeText(this, bleManager.getAccessStatusText(), Toast.LENGTH_LONG).show();
+            return false;
+        }
+        if (bleManager.isGattReady()) {
+            new AlertDialog.Builder(this).setTitle("Smart Access oturumu gerekli")
+                    .setMessage(bleManager.getAccessStatusText())
+                    .setPositiveButton("Oturumu yetkilendir", (d, w) -> authenticateSmartAccess())
+                    .setNeutralButton("Kurulum", (d, w) -> showSmartAccessSetupDialog())
+                    .setNegativeButton("İptal", null).show();
+            return false;
+        }
         new AlertDialog.Builder(this).setTitle("Bluetooth Bağlantısı Gerekli")
                 .setMessage("Kapı, bagaj ve e-Motor komutları için Togg Smart Access BLE GATT servisi gerekir. Medya Bluetooth eşleşmesi yeterli değildir.\n\nAraç yakınında Smart Access BLE beacon'ını tarayın.")
                 .setPositiveButton("Smart Access Tara", (d, w) -> showBleConnectionDialog())
@@ -838,10 +872,18 @@ public final class MainActivity extends Activity {
     private void sendVehicleCommand(VehicleBleManager.VehicleCommand command) {
         if (!requireBleConnection()) return;
         bleManager.setTelemetry(currentTelemetry);
-        Toast.makeText(this, "Komut araca iletiliyor...", Toast.LENGTH_SHORT).show();
-        bleManager.sendCommand(command, (success, message, updated) -> {
+        bleManager.sendCommand(command, (success, message, updated) -> runOnUiThread(() -> {
             Toast.makeText(this, message, Toast.LENGTH_LONG).show();
+            updateBleStatus();
             if (!success || updated == null) return;
+            onVehicleCommandCompleted(updated);
+        }));
+        updateBleStatus();
+    }
+
+    public void onVehicleCommandCompleted(VehicleTelemetry updated) {
+        if (updated == null) return;
+        runOnUiThread(() -> {
             currentTelemetry = updated;
             isDoorLocked = updated.isLocked;
             isTrunkOpen = updated.trunkOpen;
@@ -849,6 +891,7 @@ public final class MainActivity extends Activity {
             storage.saveActiveTelemetry(updated);
             updateDoorUi();
             updateTrunkUi();
+            updateEmotorCard();
             updateHeroCarVisual();
             renderQuickActionsBar();
             ToggAppWidgetProvider.updateAllWidgets(this);
@@ -859,20 +902,86 @@ public final class MainActivity extends Activity {
 
     private void updateBleStatus() {
         updateEmotorCard();
-        if (tvBleStatus == null) return;
-        if (bleManager.isGattReady()) {
-            tvBleStatus.setText("📶 Smart Access Bağlı (" + bleManager.getConnectedDeviceName() + ")");
-            tvBleStatus.setTextColor(getColor(R.color.status_green));
-        } else if (bleManager.getConnectionState() == VehicleBleManager.ConnectionState.CONNECTING) {
-            tvBleStatus.setText("⏳ BLE Smart Access Servisi Aranıyor...");
-            tvBleStatus.setTextColor(getColor(R.color.status_amber));
-        } else if (bleManager.getConnectionError() != null) {
-            tvBleStatus.setText("⚠️ Smart Access bulunamadı (Medya BT komut gönderemez)");
-            tvBleStatus.setTextColor(getColor(R.color.status_amber));
-        } else {
-            tvBleStatus.setText("⭕ Smart Access BLE bağlı değil (Dokun & Tara)");
-            tvBleStatus.setTextColor(getColor(R.color.text_secondary));
+        if (tvBleStatus == null || bleManager == null) return;
+        String status;
+        int color = R.color.status_amber;
+        switch (bleManager.getAccessState()) {
+            case READY:
+                status = bleManager.isDemoConnected() ? "Demo Smart Access hazır" : "Smart Access oturumu hazır";
+                color = R.color.status_green;
+                break;
+            case TRANSPORT_READY:
+                status = "BLE GATT bağlı · Yetkilendirme gerekli";
+                break;
+            case PREPARING_KEY:
+                status = "Smart Access anahtarı hazırlanıyor...";
+                break;
+            case FETCHING_CERTIFICATE:
+                status = "Araç erişim sertifikası alınıyor...";
+                break;
+            case AUTHENTICATING:
+                status = "Smart Access oturumu yetkilendiriliyor...";
+                break;
+            case COMMAND_PENDING:
+                status = "Komut gönderildi · Araç sonucu bekleniyor...";
+                break;
+            case ERROR:
+                status = "Smart Access: " + bleManager.getAccessStatusText();
+                color = R.color.status_red;
+                break;
+            default:
+                if (bleManager.getConnectionState() == VehicleBleManager.ConnectionState.CONNECTING) {
+                    status = "BLE Smart Access servisi aranıyor...";
+                } else if (bleManager.getConnectionState() == VehicleBleManager.ConnectionState.SCANNING) {
+                    status = "Smart Access BLE cihazları taranıyor...";
+                } else {
+                    status = "Smart Access BLE bağlı değil · Dokun ve kur";
+                    color = R.color.text_secondary;
+                }
+                break;
         }
+        String result = bleManager.getLastCommandResult();
+        if (result != null && !result.trim().isEmpty()) status += "\nSon işlem: " + result;
+        tvBleStatus.setText(status);
+        tvBleStatus.setTextColor(getColor(color));
+    }
+
+    private DigitalKey getRelayKey() {
+        return bleManager.isDemoConnected() ? new DigitalKeyManager(this).getActiveKey()
+                : bleManager.getSmartAccessKeyMetadata();
+    }
+
+    private void showSmartAccessSetupDialog() {
+        if (smartAccessSetupDialog != null && smartAccessSetupDialog.isShowing()) smartAccessSetupDialog.dismiss();
+        smartAccessSetupDialog = SmartAccessSetupDialog.show(this, storage, bleManager, this::updateBleStatus);
+    }
+
+    private void authenticateSmartAccess() {
+        bleManager.authenticateSmartAccess((success, message) -> runOnUiThread(() -> {
+            if (isFinishing() || isDestroyed()) return;
+            updateBleStatus();
+            Toast.makeText(this, message, Toast.LENGTH_LONG).show();
+        }));
+        updateBleStatus();
+    }
+
+    private void showSmartAccessDiagnostics() {
+        String diagnostics = bleManager.getDiagnosticsText();
+        TextView text = new TextView(this);
+        text.setText(diagnostics);
+        text.setTextIsSelectable(true);
+        text.setPadding(dpToPx(20), dpToPx(12), dpToPx(20), dpToPx(12));
+        ScrollView scroll = new ScrollView(this);
+        scroll.addView(text);
+        new AlertDialog.Builder(this).setTitle("Smart Access tanı bilgisi")
+                .setView(scroll)
+                .setPositiveButton("Paylaş", (dialog, which) -> {
+                    Intent share = new Intent(Intent.ACTION_SEND).setType("text/plain")
+                            .putExtra(Intent.EXTRA_SUBJECT, "Togg Smart Access tanı bilgisi")
+                            .putExtra(Intent.EXTRA_TEXT, diagnostics);
+                    startActivity(Intent.createChooser(share, "Tanı bilgisini paylaş"));
+                })
+                .setNegativeButton("Kapat", null).show();
     }
 
     private void showBleConnectionDialog() {
@@ -890,11 +999,14 @@ public final class MainActivity extends Activity {
         List<BluetoothDevice> allDevices = bleManager.getAllPairedDevices();
         List<BluetoothDevice> otherDevices = new ArrayList<>();
         List<String> options = new ArrayList<>();
-        for (BluetoothDevice device : devices) options.add(device.getName() + (bleManager.isDeviceConnected(device) ? " 🟢 [Bağlı]" : " [Eşleşmiş]"));
-        int scanIndex = options.size(); options.add("🔍 Çevredeki BLE Cihazlarını Tara");
+        for (BluetoothDevice device : devices) options.add(device.getName() + (bleManager.isDeviceConnected(device) ? "  [Bağlı]" : " [Eşleşmiş]"));
+        int scanIndex = options.size(); options.add(" Çevredeki BLE Cihazlarını Tara");
+        int setupIndex = options.size(); options.add("Smart Access kurulumu");
+        int authorizeIndex = options.size(); options.add("Smart Access oturumunu yetkilendir");
+        int diagnosticsIndex = options.size(); options.add("Tanı bilgisini görüntüle / paylaş");
         for (BluetoothDevice device : allDevices) if (!devices.contains(device)) otherDevices.add(device);
         int otherIndex = -1;
-        if (!otherDevices.isEmpty()) { otherIndex = options.size(); options.add("📱 Diğer Eşleşmiş Bluetooth Cihazları"); }
+        if (!otherDevices.isEmpty()) { otherIndex = options.size(); options.add(" Diğer Eşleşmiş Bluetooth Cihazları"); }
         int demoIndex = -1;
         if (storage.isDemoMode()) { demoIndex = options.size(); options.add("Demo BLE Bağlantısı"); }
         int disconnectIndex = -1;
@@ -902,9 +1014,9 @@ public final class MainActivity extends Activity {
         int openIndex = -1;
         if (!bleManager.isBluetoothEnabled()) { openIndex = options.size(); options.add("Bluetooth'u Aç"); }
         final int pairedCount = devices.size(), scanChoice = scanIndex, othersChoice = otherIndex;
+        final int setupChoice = setupIndex, authorizeChoice = authorizeIndex, diagnosticsChoice = diagnosticsIndex;
         final int demoChoice = demoIndex, disconnectChoice = disconnectIndex, openChoice = openIndex;
         new AlertDialog.Builder(this).setTitle("Araç Smart Access BLE Bağlantısı")
-                .setMessage("Araç medya Bluetooth eşleşmesi Smart Access komutlarını taşımaz. Kapı, bagaj ve e-Motor komutları için araç yakınında Smart Access BLE beacon'ını tarayın.")
                 .setItems(options.toArray(new String[0]), (dialog, which) -> {
                     if (which < pairedCount) bleManager.connectToVehicle(this, devices.get(which));
                     else if (which == scanChoice) {
@@ -916,9 +1028,12 @@ public final class MainActivity extends Activity {
                             new AlertDialog.Builder(this).setTitle("Bulunan Togg BLE Cihazları").setItems(names.toArray(new String[0]),
                                     (d, choice) -> bleManager.connectToVehicle(this, found.get(choice))).setNegativeButton("İptal", null).show();
                         });
-                    } else if (which == othersChoice) {
+                    } else if (which == setupChoice) showSmartAccessSetupDialog();
+                    else if (which == authorizeChoice) authenticateSmartAccess();
+                    else if (which == diagnosticsChoice) showSmartAccessDiagnostics();
+                    else if (which == othersChoice) {
                         List<String> names = new ArrayList<>();
-                        for (BluetoothDevice item : otherDevices) names.add(item.getName() + (bleManager.isDeviceConnected(item) ? " 🟢 [Bağlı]" : " [Eşleşmiş]"));
+                        for (BluetoothDevice item : otherDevices) names.add(item.getName() + (bleManager.isDeviceConnected(item) ? "  [Bağlı]" : " [Eşleşmiş]"));
                         new AlertDialog.Builder(this).setTitle("Eşleşmiş Bluetooth Cihazları").setItems(names.toArray(new String[0]),
                                 (d, choice) -> bleManager.connectToVehicle(this, otherDevices.get(choice))).setNegativeButton("İptal", null).show();
                     } else if (which == demoChoice) bleManager.setDemoConnected(true);
@@ -952,9 +1067,9 @@ public final class MainActivity extends Activity {
 
     private void confirmAndToggleTrunk() {
         if (!requireBleConnection()) return;
-        new AlertDialog.Builder(this).setTitle(R.string.trunk_confirm_title)
-                .setMessage(R.string.trunk_confirm_msg)
-                .setPositiveButton("Evet, " + (isTrunkOpen ? "Kapat" : "Aç"), (d, w) -> sendVehicleCommand(VehicleBleManager.VehicleCommand.TRUNK))
+        new AlertDialog.Builder(this).setTitle("Bagaj işlemi")
+                .setItems(new String[]{"Bagajı aç", "Bagajı kapat"},
+                        (dialog, which) -> executeDigitalKeyAction(which == 0 ? "trunk_open" : "trunk_close"))
                 .setNegativeButton(R.string.btn_cancel, null).show();
     }
 
@@ -976,74 +1091,26 @@ public final class MainActivity extends Activity {
     }
 
     private void adjustTargetTemperature(double delta) {
-        currentTargetTemp = Math.max(16.0, Math.min(28.5, currentTargetTemp + delta));
-        tvControlTargetTemp.setText(String.format("%.1f°C", currentTargetTemp));
-        tvTargetHvac.setText(String.format("%.1f°C", currentTargetTemp));
-        if (currentTelemetry != null) {
-            currentTelemetry = currentTelemetry.withClimate(currentTargetTemp, isClimateActive, isDefrostActive);
-            renderHomeCards();
-        }
-        updateHeroCarVisual();
+        Toast.makeText(this, "İklimlendirme kontrolü araçta henüz etkin değil.", Toast.LENGTH_SHORT).show();
     }
 
     private void toggleClimate() {
-        isClimateActive = !isClimateActive;
-        updateClimateUi();
-        updateHeroCarVisual();
-        renderQuickActionsBar();
-
-        if (isClimateActive) {
-            Toast.makeText(this, "Togg T10F: İklimlendirme Başlatıldı (" + String.format(Locale.ROOT, "%.1f°C", currentTargetTemp) + ") ❄️", Toast.LENGTH_SHORT).show();
-        } else {
-            Toast.makeText(this, "Togg T10F: İklimlendirme Kapatıldı", Toast.LENGTH_SHORT).show();
-        }
-
-        if (currentTelemetry != null) {
-            currentTelemetry = currentTelemetry.withClimate(currentTargetTemp, isClimateActive, isDefrostActive);
-            dbHelper.insert(currentTelemetry);
-            renderHomeCards();
-            WearSyncManager.syncTelemetry(this, currentTelemetry);
-        }
+        Toast.makeText(this, "İklimlendirme kontrolü araçta henüz etkin değil.", Toast.LENGTH_SHORT).show();
     }
 
     private void toggleDefrost() {
-        isDefrostActive = !isDefrostActive;
-        updateClimateUi();
-        updateHeroCarVisual();
-        renderQuickActionsBar();
-
-        if (isDefrostActive) {
-            Toast.makeText(this, "Ön Cam Buğu Çözme (Maksimum Isıtma) Aktif", Toast.LENGTH_SHORT).show();
-        } else {
-            Toast.makeText(this, "Ön Cam Buğu Çözme Kapatıldı", Toast.LENGTH_SHORT).show();
-        }
-
-        if (currentTelemetry != null) {
-            currentTelemetry = currentTelemetry.withClimate(currentTargetTemp, isClimateActive, isDefrostActive);
-            dbHelper.insert(currentTelemetry);
-            renderHomeCards();
-        }
+        Toast.makeText(this, "Buğu çözme kontrolü araçta henüz etkin değil.", Toast.LENGTH_SHORT).show();
     }
 
     private void updateClimateUi() {
         if (tvClimateStatus != null) {
-            if (isClimateActive) {
-                tvClimateStatus.setText("Açık (" + String.format("%.1f°C", currentTargetTemp) + ")");
-                tvClimateStatus.setTextColor(getColor(R.color.status_green));
-                if (btnClimateToggle != null) {
-                    btnClimateToggle.setText(R.string.action_stop_climate);
-                }
-            } else {
-                tvClimateStatus.setText(R.string.climate_off);
-                tvClimateStatus.setTextColor(getColor(R.color.text_muted));
-                if (btnClimateToggle != null) {
-                    btnClimateToggle.setText(R.string.action_start_climate);
-                }
-            }
+            tvClimateStatus.setText("Araç kontrolü şu an etkin değil");
+            tvClimateStatus.setTextColor(getColor(R.color.text_muted));
         }
-        if (btnDefrost != null) {
-            btnDefrost.setTextColor(getColor(isDefrostActive ? R.color.status_amber : R.color.accent_blue));
-        }
+        if (btnClimateToggle != null) { btnClimateToggle.setText("Şimdilik devre dışı"); btnClimateToggle.setEnabled(false); }
+        if (btnDefrost != null) { btnDefrost.setEnabled(false); btnDefrost.setTextColor(getColor(R.color.text_muted)); }
+        if (btnTempMinus != null) btnTempMinus.setEnabled(false);
+        if (btnTempPlus != null) btnTempPlus.setEnabled(false);
     }
 
     private void refreshTelemetry() {
@@ -1053,11 +1120,11 @@ public final class MainActivity extends Activity {
         apiClient.fetchTelemetry(new TvaApiClient.TelemetryCallback() {
             @Override
             public void onSuccess(VehicleTelemetry telemetry, boolean isLive) {
-                boolean readyToDrive = (telemetry != null && telemetry.isReadyToDrive)
-                        || (currentTelemetry != null && currentTelemetry.isReadyToDrive);
-                final VehicleTelemetry updatedTelemetry = telemetry != null
-                        ? (telemetry.isReadyToDrive != readyToDrive ? telemetry.withReadyToDrive(readyToDrive) : telemetry)
-                        : currentTelemetry;
+                final VehicleTelemetry updatedTelemetry = telemetry != null ? telemetry : currentTelemetry;
+                if (updatedTelemetry == null) {
+                    runOnUiThread(() -> { swipeRefresh.setRefreshing(false); tvSyncStatus.setText("VERİ YOK"); });
+                    return;
+                }
                 currentTelemetry = updatedTelemetry;
                 dbHelper.insert(updatedTelemetry);
                 storage.saveActiveTelemetry(updatedTelemetry);
@@ -1104,6 +1171,11 @@ public final class MainActivity extends Activity {
 
     private void renderTelemetry(VehicleTelemetry t, boolean isDemo) {
         if (t == null) return;
+        com.togg.companion.core.SmartAccessProtocol.RawStatus signed = bleManager == null ? null : bleManager.getSmartAccessStatus();
+        if (!isDemo && signed != null && storage.getVin().equalsIgnoreCase(t.vin)) {
+            t = t.withSmartAccessStatus(signed);
+            currentTelemetry = t;
+        }
         if (bleManager != null) bleManager.setTelemetry(t);
         storage.saveActiveTelemetry(t);
         ToggAppWidgetProvider.updateAllWidgets(this);
@@ -1217,19 +1289,15 @@ public final class MainActivity extends Activity {
         if (cmd != null) {
             switch (cmd.toLowerCase(Locale.ROOT)) {
                 case "lock":
-                    if (!isDoorLocked) toggleDoorLock();
+                    if (!isDoorLocked) executeDigitalKeyAction("lock");
                     break;
                 case "unlock":
-                    if (isDoorLocked) toggleDoorLock();
+                    if (isDoorLocked) executeDigitalKeyAction("unlock");
                     break;
                 case "climate_start":
-                    if (!isClimateActive) toggleClimate();
-                    break;
                 case "climate_stop":
-                    if (isClimateActive) toggleClimate();
-                    break;
                 case "defrost":
-                    if (!isDefrostActive) toggleDefrost();
+                    Toast.makeText(this, "İklimlendirme kontrolü araçta henüz etkin değil.", Toast.LENGTH_SHORT).show();
                     break;
                 case "trunk":
                     confirmAndToggleTrunk();
@@ -1246,111 +1314,38 @@ public final class MainActivity extends Activity {
             toggleReadyToDrive();
             return;
         }
-        DigitalKeyManager keyMgr = new DigitalKeyManager(this);
-        DigitalKey activeKey = keyMgr.getActiveKey();
-        if (activeKey == null || !activeKey.isValid()) {
-            Toast.makeText(this, "Geçerli bir Dijital Anahtar bulunamadı!", Toast.LENGTH_SHORT).show();
+        VehicleBleManager.VehicleCommand command;
+        if ("lock".equalsIgnoreCase(action)) {
+            command = VehicleBleManager.VehicleCommand.LOCK;
+        } else if ("unlock".equalsIgnoreCase(action)) {
+            command = VehicleBleManager.VehicleCommand.UNLOCK;
+        } else if ("trunk".equalsIgnoreCase(action)) {
+            confirmAndToggleTrunk();
+            return;
+        } else if ("trunk_open".equalsIgnoreCase(action)) {
+            command = VehicleBleManager.VehicleCommand.TRUNK_OPEN;
+        } else if ("trunk_close".equalsIgnoreCase(action)) {
+            command = VehicleBleManager.VehicleCommand.TRUNK_CLOSE;
+        } else {
+            Toast.makeText(this, "Bu araç kontrolü henüz etkin değil.", Toast.LENGTH_SHORT).show();
             return;
         }
+        sendVehicleCommand(command);
+    }
 
-        if ("lock".equalsIgnoreCase(action)) {
-            if (!activeKey.canLock) {
-                Toast.makeText(this, "Bu anahtarın kapı kilitleme yetkisi yok!", Toast.LENGTH_SHORT).show();
-                return;
-            }
-            isDoorLocked = true;
-            updateDoorUi();
-            updateHeroCarVisual();
-            renderQuickActionsBar();
-            Toast.makeText(this, "🔑 Dijital Anahtar: Kapılar kilitlendi 🔒 (" + activeKey.seId + ")", Toast.LENGTH_SHORT).show();
-            if (currentTelemetry != null) {
-                currentTelemetry = currentTelemetry.withLock(true);
-                dbHelper.insert(currentTelemetry);
-                renderHomeCards();
-                WearSyncManager.syncTelemetry(this, currentTelemetry);
-            }
-        } else if ("unlock".equalsIgnoreCase(action)) {
-            if (!activeKey.canUnlock) {
-                Toast.makeText(this, "Bu anahtarın kilit açma yetkisi yok!", Toast.LENGTH_SHORT).show();
-                return;
-            }
-            isDoorLocked = false;
-            updateDoorUi();
-            updateHeroCarVisual();
-            renderQuickActionsBar();
-            Toast.makeText(this, "🔑 Dijital Anahtar: Kapı kilitleri açıldı 🔓 (" + activeKey.seId + ")", Toast.LENGTH_SHORT).show();
-            if (currentTelemetry != null) {
-                currentTelemetry = currentTelemetry.withLock(false);
-                dbHelper.insert(currentTelemetry);
-                renderHomeCards();
-                WearSyncManager.syncTelemetry(this, currentTelemetry);
-            }
-        } else if ("trunk".equalsIgnoreCase(action)) {
-            if (!activeKey.canTrunk) {
-                Toast.makeText(this, "Bu anahtarın bagaj kapağını açma yetkisi yok!", Toast.LENGTH_SHORT).show();
-                return;
-            }
-            isTrunkOpen = !isTrunkOpen;
-            updateTrunkUi();
-            updateHeroCarVisual();
-            renderQuickActionsBar();
-            Toast.makeText(this, "🔑 Dijital Anahtar: Bagaj " + (isTrunkOpen ? "açıldı 📦" : "kapatıldı") + " (" + activeKey.seId + ")", Toast.LENGTH_SHORT).show();
-            if (currentTelemetry != null) {
-                currentTelemetry = currentTelemetry.withTrunk(isTrunkOpen);
-                dbHelper.insert(currentTelemetry);
-                renderHomeCards();
-                WearSyncManager.syncTelemetry(this, currentTelemetry);
-            }
-        } else if ("climate_start".equalsIgnoreCase(action) || "climate".equalsIgnoreCase(action)) {
-            if (!activeKey.canClimate) {
-                Toast.makeText(this, "Bu anahtarın iklimlendirme yetkisi yok!", Toast.LENGTH_SHORT).show();
-                return;
-            }
-            isClimateActive = true;
-            updateClimateUi();
-            updateHeroCarVisual();
-            renderQuickActionsBar();
-            Toast.makeText(this, "🔑 Dijital Anahtar: İklimlendirme başlatıldı ❄️ (" + activeKey.seId + ")", Toast.LENGTH_SHORT).show();
-            if (currentTelemetry != null) {
-                currentTelemetry = currentTelemetry.withClimate(currentTargetTemp, true, isDefrostActive);
-                dbHelper.insert(currentTelemetry);
-                renderHomeCards();
-                WearSyncManager.syncTelemetry(this, currentTelemetry);
-            }
-        } else if ("climate_stop".equalsIgnoreCase(action)) {
-            isClimateActive = false;
-            updateClimateUi();
-            updateHeroCarVisual();
-            renderQuickActionsBar();
-            Toast.makeText(this, "🔑 Dijital Anahtar: İklimlendirme durduruldu (" + activeKey.seId + ")", Toast.LENGTH_SHORT).show();
-            if (currentTelemetry != null) {
-                currentTelemetry = currentTelemetry.withClimate(currentTargetTemp, false, isDefrostActive);
-                dbHelper.insert(currentTelemetry);
-                renderHomeCards();
-                WearSyncManager.syncTelemetry(this, currentTelemetry);
-            }
-        } else if ("defrost".equalsIgnoreCase(action)) {
-            isDefrostActive = !isDefrostActive;
-            updateClimateUi();
-            updateHeroCarVisual();
-            renderQuickActionsBar();
-            Toast.makeText(this, "🔑 Dijital Anahtar: Ön cam buğu çözme " + (isDefrostActive ? "açıldı ♨️" : "kapatıldı"), Toast.LENGTH_SHORT).show();
-            if (currentTelemetry != null) {
-                currentTelemetry = currentTelemetry.withClimate(currentTargetTemp, isClimateActive, isDefrostActive);
-                dbHelper.insert(currentTelemetry);
-                renderHomeCards();
-                WearSyncManager.syncTelemetry(this, currentTelemetry);
-            }
-        } else if ("headlights".equalsIgnoreCase(action)) {
-            toggleHeadlights();
-        }
+    private boolean isReadyToDriveNow() {
+        com.togg.companion.core.SmartAccessProtocol.RawStatus signed = bleManager.getSmartAccessStatus();
+        return signed != null ? signed.vehStat == com.togg.companion.core.SmartAccessProtocol.PowerState.DRIVING
+                : currentTelemetry != null && currentTelemetry.isReadyToDrive;
     }
 
     private void toggleReadyToDrive() {
+        if (isReadyToDriveNow()) {
+            Toast.makeText(this, "Araç READY modunda. Motor durdurma komutu henüz desteklenmiyor.", Toast.LENGTH_LONG).show();
+            return;
+        }
         if (!requireBleConnection()) return;
-        if (currentTelemetry == null) currentTelemetry = dbHelper.getLatest();
-        if (currentTelemetry == null) return;
-        sendVehicleCommand(currentTelemetry.isReadyToDrive ? VehicleBleManager.VehicleCommand.EMOTOR_STOP : VehicleBleManager.VehicleCommand.EMOTOR_START);
+        sendVehicleCommand(VehicleBleManager.VehicleCommand.EMOTOR_START);
     }
 
     private void handleDigitalKeyIntent(Intent intent) {
@@ -1376,34 +1371,29 @@ public final class MainActivity extends Activity {
         if (key == null || isFinishing() || isDestroyed()) return;
 
         AlertDialog.Builder builder = new AlertDialog.Builder(this);
-        builder.setTitle("🔑 Trumore Dijital Anahtar Paylaşımı");
+        builder.setTitle(" Trumore Dijital Anahtar Paylaşımı");
 
         String msg = "Trumore uygulamasından yeni bir dijital anahtar paylaşımı algılandı:\n\n"
-                + "• Plaka / Araç: " + key.vehiclePlate + " (" + key.vehicleVin + ")\n"
+                + "• Plaka / Araç: " + key.getVehicleDisplay() + "\n"
                 + "• Güvenli Kod (SE-ID): " + key.seId + "\n"
                 + "• Kullanıcı: " + key.recipientName + "\n"
                 + "• Geçerlilik: " + key.getRemainingTimeDisplay() + "\n"
                 + "• Yetkiler: " + key.getPermissionsSummary() + "\n\n"
-                + "Bu anahtarı ToggCompanion'a kaydedip Samsung Galaxy Watch akıllı saatinize kopyalamak istiyor musunuz?";
+                + "Bu davet henüz etkin bir araç anahtarı değildir. Smart Access kurulumu doğrulandıktan sonra araç erişimi sağlanabilir. Daveti kaydetmek istiyor musunuz?";
         builder.setMessage(msg);
 
-        builder.setPositiveButton("Kaydet & Saate Aktar ⌚", (dialog, which) -> {
+        builder.setPositiveButton("Daveti Kaydet", (dialog, which) -> {
             DigitalKeyManager mgr = new DigitalKeyManager(this);
             mgr.saveKey(key);
             WearSyncManager.syncDigitalKey(this, key);
             renderDigitalKeyCard();
             renderHomeCards();
             selectTab(4); // Switch to Security tab
-            Toast.makeText(this, "Dijital anahtar başarıyla kaydedildi ve akıllı saate aktarıldı! ⌚🔑", Toast.LENGTH_LONG).show();
+            Toast.makeText(this, "Davet kaydedildi; araç anahtarı aktivasyonu bekleniyor.", Toast.LENGTH_LONG).show();
         });
 
-        builder.setNeutralButton("Sadece Telefona Kaydet", (dialog, which) -> {
-            DigitalKeyManager mgr = new DigitalKeyManager(this);
-            mgr.saveKey(key);
-            renderDigitalKeyCard();
-            renderHomeCards();
-            selectTab(4);
-            Toast.makeText(this, "Dijital anahtar telefona kaydedildi.", Toast.LENGTH_SHORT).show();
+        builder.setNeutralButton("Trumore'u Aç", (dialog, which) -> {
+            if (!TrumoreBridge.openSmartDevice(this)) Toast.makeText(this, "Trumore uygulaması açılamadı.", Toast.LENGTH_SHORT).show();
         });
 
         builder.setNegativeButton("İptal", null);
@@ -1417,15 +1407,22 @@ public final class MainActivity extends Activity {
         DigitalKey currentKey = keyMgr.getActiveKey();
 
         AlertDialog.Builder builder = new AlertDialog.Builder(this);
-        builder.setTitle("🔑 Trumore Dijital Anahtar Yönetimi");
+        builder.setTitle(" Trumore Dijital Anahtar Yönetimi");
 
         LinearLayout layout = new LinearLayout(this);
         layout.setOrientation(LinearLayout.VERTICAL);
         layout.setPadding(dpToPx(20), dpToPx(12), dpToPx(20), dpToPx(12));
 
+        Button setupAccess = new Button(this);
+        setupAccess.setText("Smart Access kurulumu ve yetkilendirme");
+        layout.addView(setupAccess);
+        Button diagnostics = new Button(this);
+        diagnostics.setText("Smart Access tanı bilgisini görüntüle");
+        layout.addView(diagnostics);
+
         if (currentKey != null) {
             TextView tvCur = new TextView(this);
-            tvCur.setText("Mevcut Kayıtlı Anahtar:\n• SE-ID: " + currentKey.seId + "\n• Plaka: " + currentKey.vehiclePlate + "\n• Süre: " + currentKey.getRemainingTimeDisplay() + "\n• Durum: " + (currentKey.isValid() ? "Aktif ✅" : "Süresi Dolmuş ⚠️"));
+            tvCur.setText("Mevcut Kayıt:\n• SE-ID: " + currentKey.seId + "\n• Araç: " + currentKey.getVehicleDisplay() + "\n• Süre: " + currentKey.getRemainingTimeDisplay() + "\n• Durum: " + (currentKey.isValid() ? "Yerel kayıt geçerli" : currentKey.isExpired() ? "Süresi dolmuş" : "Aktivasyon bekleniyor"));
             tvCur.setTextColor(getColor(R.color.text_primary));
             tvCur.setTextSize(13);
             tvCur.setPadding(0, 0, 0, dpToPx(10));
@@ -1443,14 +1440,16 @@ public final class MainActivity extends Activity {
         etKeyInput.setTextSize(14);
         layout.addView(etKeyInput);
 
-        builder.setView(layout);
+        ScrollView keyScroll = new ScrollView(this);
+        keyScroll.addView(layout);
+        builder.setView(keyScroll);
 
-        builder.setPositiveButton("Kaydet ve Saate Aktar", (dialog, which) -> {
+        builder.setPositiveButton("Daveti Kaydet", (dialog, which) -> {
             String input = etKeyInput.getText().toString().trim();
             if (input.isEmpty()) {
                 if (currentKey != null && currentKey.isValid()) {
                     WearSyncManager.syncDigitalKey(this, currentKey);
-                    Toast.makeText(this, "Mevcut anahtar akıllı saate aktarıldı! ⌚", Toast.LENGTH_SHORT).show();
+                    Toast.makeText(this, "Mevcut anahtar akıllı saate aktarıldı! ", Toast.LENGTH_SHORT).show();
                 } else {
                     Toast.makeText(this, "Lütfen bir anahtar bağlantısı veya kodu giriniz.", Toast.LENGTH_SHORT).show();
                 }
@@ -1463,14 +1462,14 @@ public final class MainActivity extends Activity {
                 WearSyncManager.syncDigitalKey(this, parsed);
                 renderDigitalKeyCard();
                 renderHomeCards();
-                Toast.makeText(this, "Dijital anahtar kaydedildi ve saate kopyalandı! ⌚🔑", Toast.LENGTH_LONG).show();
+                Toast.makeText(this, "Davet kaydedildi; araç anahtarı aktivasyonu bekleniyor.", Toast.LENGTH_LONG).show();
             } else {
                 Toast.makeText(this, "Geçersiz anahtar formatı! Trumore bağlantısı veya SE- referans kodu bekleniyor.", Toast.LENGTH_LONG).show();
             }
         });
 
         if (currentKey != null) {
-            builder.setNeutralButton("🗑️ Sil", (dialog, which) -> {
+            builder.setNeutralButton(" Sil", (dialog, which) -> {
                 keyMgr.removeKey();
                 WearSyncManager.syncDigitalKey(this, null);
                 renderDigitalKeyCard();
@@ -1480,19 +1479,23 @@ public final class MainActivity extends Activity {
         }
 
         builder.setNegativeButton("Kapat", null);
-        builder.show();
+        AlertDialog keyDialog = builder.create();
+        setupAccess.setOnClickListener(view -> { keyDialog.dismiss(); showSmartAccessSetupDialog(); });
+        diagnostics.setOnClickListener(view -> { keyDialog.dismiss(); showSmartAccessDiagnostics(); });
+        keyDialog.show();
     }
 
     private void renderDigitalKeyCard() {
         DigitalKeyManager keyMgr = new DigitalKeyManager(this);
-        DigitalKey key = keyMgr.getActiveKey();
+        DigitalKey key = getRelayKey();
+        if (key == null) key = keyMgr.getActiveKey();
 
         if (tvPhoneKeyBadge != null) {
             if (key != null && key.isValid()) {
                 tvPhoneKeyBadge.setText("AKTİF");
                 tvPhoneKeyBadge.setTextColor(getColor(R.color.status_green));
             } else if (key != null && !key.isValid()) {
-                tvPhoneKeyBadge.setText("SÜRESİ DOLDU");
+                tvPhoneKeyBadge.setText(key.isExpired() ? "SÜRESİ DOLDU" : "AKTİVASYON BEKLİYOR");
                 tvPhoneKeyBadge.setTextColor(getColor(R.color.status_red));
             } else {
                 tvPhoneKeyBadge.setText("YOK");
@@ -1502,14 +1505,15 @@ public final class MainActivity extends Activity {
 
         if (tvPhoneKeyInfo != null) {
             if (key != null && key.isValid()) {
-                String info = "Araç: " + key.vehiclePlate + " (" + key.vehicleVin + ")\n"
-                        + "SE-ID: " + key.seId + "\n"
+                String info = "Araç: " + key.getVehicleDisplay() + "\n"
+                        + (key.seId.isEmpty() ? "Erişim: Telefon BLE oturumu\n" : "SE-ID: " + key.seId + "\n")
                         + "Kullanıcı: " + key.recipientName + "\n"
                         + "Kalan Süre: " + key.getRemainingTimeDisplay() + "\n"
                         + "Yetkiler: " + key.getPermissionsSummary();
                 tvPhoneKeyInfo.setText(info);
             } else if (key != null && !key.isValid()) {
-                tvPhoneKeyInfo.setText("Kayıtlı dijital anahtarın (" + key.seId + ") geçerlilik süresi dolmuştur.");
+                tvPhoneKeyInfo.setText(key.isExpired() ? "Kayıtlı dijital anahtarın (" + key.seId + ") geçerlilik süresi dolmuştur."
+                        : "Davet kaydı: " + key.seId + "\nSmart Access anahtar kurulumu henüz doğrulanmadı.");
             } else {
                 tvPhoneKeyInfo.setText("Kayıtlı dijital anahtar bulunamadı. Trumore uygulamasından paylaşılan davet bağlantısını açarak veya referans kodu girerek anahtar ekleyebilirsiniz.");
             }
@@ -1596,27 +1600,22 @@ public final class MainActivity extends Activity {
     }
 
     private void showDriveModeSelector() {
-        new AlertDialog.Builder(this)
-                .setTitle("Sürüş Modu")
-                .setItems(new String[]{"Eco", "Konfor", "Spor"}, (dialog, which) -> {
-                    String[] modes = {"Eco", "Comfort", "Sport"};
-                    activateDriveMode(modes[which]);
-                })
-                .show();
+        Toast.makeText(this, "Sürüş modu kontrolü araçta henüz etkin değil.", Toast.LENGTH_SHORT).show();
     }
 
     private void activateDriveMode(String mode) {
-        if (currentTelemetry == null) return;
-        currentTelemetry = currentTelemetry.withDriveMode(mode);
-        dbHelper.insert(currentTelemetry);
-        renderTelemetry(currentTelemetry, storage.isDemoMode());
-        String displayMode = "Eco".equals(mode) ? "Eco" : ("Sport".equals(mode) ? "Spor" : "Konfor");
-        Toast.makeText(this, "Togg T10F: Sürüş Modu -> " + displayMode + ("Sport".equals(mode) ? " ⚡" : ""), Toast.LENGTH_SHORT).show();
+        Toast.makeText(this, "Sürüş modu kontrolü araçta henüz etkin değil.", Toast.LENGTH_SHORT).show();
     }
 
     private void resolveParkAddress(double lat, double lon) {
         if (tvGpsCoords != null) {
-            tvGpsCoords.setText(String.format(Locale.US, "GPS: %.6f, %.6f", lat, lon));
+            tvGpsCoords.setText(hasUsableCoordinates(lat, lon)
+                    ? String.format(Locale.US, "GPS: %.6f, %.6f", lat, lon)
+                    : "GPS konumu mevcut değil");
+        }
+        if (!hasUsableCoordinates(lat, lon)) {
+            if (tvParkAddress != null) tvParkAddress.setText("Aracın konumu mevcut değil");
+            return;
         }
         new Thread(() -> {
             try {
@@ -1725,24 +1724,26 @@ public final class MainActivity extends Activity {
             }
         }
 
-        // Pair grid cards into 2-column adaptive rows (max 2 cards per row)
-        for (int i = 0; i < gridCards.size(); i += 2) {
+        // Keep cards readable on narrow displays and at large system font scales.
+        android.content.res.Configuration layoutConfig = getResources().getConfiguration();
+        int columns = layoutConfig.screenWidthDp >= 380 && layoutConfig.fontScale <= 1.25f ? 2 : 1;
+        for (int i = 0; i < gridCards.size(); i += columns) {
             LinearLayout row = new LinearLayout(this);
             row.setOrientation(LinearLayout.HORIZONTAL);
             row.setLayoutParams(new LinearLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-            row.setWeightSum(2.0f);
+            row.setWeightSum(columns);
 
             View card1 = gridCards.get(i);
             LinearLayout.LayoutParams p1 = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1.0f);
             p1.bottomMargin = dpToPx(12);
-            if (i + 1 < gridCards.size()) {
+            if (columns == 2 && i + 1 < gridCards.size()) {
                 p1.setMarginEnd(dpToPx(6));
             }
             card1.setLayoutParams(p1);
             row.addView(card1);
 
-            if (i + 1 < gridCards.size()) {
+            if (columns == 2 && i + 1 < gridCards.size()) {
                 View card2 = gridCards.get(i + 1);
                 LinearLayout.LayoutParams p2 = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1.0f);
                 p2.bottomMargin = dpToPx(12);
@@ -1775,14 +1776,14 @@ public final class MainActivity extends Activity {
         card.setOnClickListener(v -> showAbrpSettingsDialog());
 
         TextView title = new TextView(this);
-        title.setText("🗺️ ABRP Canlı Rota Planlayıcı");
+        title.setText("ABRP Canlı Rota Planlayıcı");
         title.setTextColor(getColor(R.color.accent_togg));
         title.setTextSize(14);
         title.setTypeface(null, Typeface.BOLD);
         card.addView(title);
 
         TextView status = new TextView(this);
-        String abrpStatus = storage.isAbrpEnabled() ? "🟢 7 dk telemetri" : "⚪ Telemetri kapalı";
+        String abrpStatus = storage.isAbrpEnabled() ? " 7 dk telemetri" : "⚪ Telemetri kapalı";
         if (storage.isAbrpRouteSyncEnabled()) {
             abrpStatus += " • 15 dk rota aktarımı açık";
             if (!storage.getAbrpActiveStopName().isEmpty()) abrpStatus += "\nSonraki durak: " + storage.getAbrpActiveStopName();
@@ -1813,15 +1814,15 @@ public final class MainActivity extends Activity {
         card.addView(buttons, buttonsParams);
 
         Button send = new Button(this);
-        send.setText("⚡ Şimdi Gönder");
+        send.setText("ϟ Şimdi Gönder");
         send.setTextSize(11);
         send.setOnClickListener(v -> sendAbrpTelemetry(currentTelemetry != null ? currentTelemetry : t, storage.getAbrpToken(), storage.getAbrpCapacity()));
         Button open = new Button(this);
-        open.setText("🗺️ ABRP'de Aç");
+        open.setText("ABRP'de Aç");
         open.setTextSize(11);
         open.setOnClickListener(v -> openAbrp());
         Button settings = new Button(this);
-        settings.setText("⚙️ Ayarlar");
+        settings.setText("Ayarlar");
         settings.setTextSize(11);
         settings.setOnClickListener(v -> showAbrpSettingsDialog());
         buttons.addView(send, new LinearLayout.LayoutParams(0, dpToPx(44), 1));
@@ -1829,7 +1830,7 @@ public final class MainActivity extends Activity {
         buttons.addView(settings, new LinearLayout.LayoutParams(0, dpToPx(44), 1));
 
         Button sendToGez = new Button(this);
-        sendToGez.setText("📍 Gez'e / Araca Rota Aktar");
+        sendToGez.setText("Akıllı cihazıma aktar");
         sendToGez.setBackgroundResource(R.drawable.btn_gradient);
         sendToGez.setTextColor(getColor(android.R.color.white));
         sendToGez.setTypeface(null, Typeface.BOLD);
@@ -1840,235 +1841,17 @@ public final class MainActivity extends Activity {
         return card;
     }
 
+    private AlertDialog vehicleRouteDialog;
+
     private void showSendToGezDialog(String prefill) {
-        EditText input = new EditText(this);
-        input.setHint("ABRP / Google Maps linki veya koordinat");
-        String initial = prefill;
-        if (initial == null || initial.trim().isEmpty()) {
-            ClipboardManager clipboard = (ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
-            if (clipboard != null && clipboard.hasPrimaryClip()) {
-                ClipData clip = clipboard.getPrimaryClip();
-                if (clip != null && clip.getItemCount() > 0) {
-                    CharSequence candidate = clip.getItemAt(0).coerceToText(this);
-                    if (candidate != null) {
-                        String clipboardText = candidate.toString().trim();
-                        if (clipboardText.contains("http") || clipboardText.startsWith("geo:")
-                                || clipboardText.startsWith("google.navigation:") || clipboardText.contains(",")) {
-                            initial = clipboardText;
-                        }
-                    }
-                }
-            }
+        if (isFinishing() || isDestroyed()) return;
+        if (vehicleRouteDialog != null && vehicleRouteDialog.isShowing()) {
+            Toast.makeText(this, "Rota aktarım penceresi zaten açık. Önce mevcut işlemi tamamlayın.", Toast.LENGTH_SHORT).show();
+            return;
         }
-        if (initial != null) input.setText(initial);
-        LinearLayout content = new LinearLayout(this);
-        content.setOrientation(LinearLayout.VERTICAL);
-        content.setPadding(dpToPx(20), dpToPx(8), dpToPx(20), 0);
-        TextView explanation = new TextView(this);
-        explanation.setText("Harita bağlantısını veya adresi girin. Hedef çözümlendikten sonra akıllı cihazınıza aktarabilirsiniz.");
-        content.addView(explanation);
-        content.addView(input);
-        android.widget.ProgressBar progress = new android.widget.ProgressBar(this);
-        progress.setIndeterminate(true);
-        TextView status = new TextView(this);
-        Button directDispatch = new Button(this);
-        directDispatch.setText("⚡ Tek Tıkla Araca İlet (Togg Cloud)");
-        directDispatch.setBackgroundResource(R.drawable.btn_gradient);
-        directDispatch.setTextColor(getColor(R.color.white));
-        directDispatch.setTypeface(null, Typeface.BOLD);
-        directDispatch.setMinHeight(dpToPx(54));
-        directDispatch.setVisibility(View.GONE);
-        content.addView(progress);
-        content.addView(status);
-        content.addView(directDispatch);
-        TextView routeTitle = new TextView(this);
-        routeTitle.setTypeface(null, Typeface.BOLD);
-        content.addView(routeTitle);
-        LinearLayout stopList = new LinearLayout(this);
-        stopList.setOrientation(LinearLayout.VERTICAL);
-        content.addView(stopList);
-        TextView bridgeNote = new TextView(this);
-        bridgeNote.setText("ℹ️ Araç navigasyonuna aktarım Togg Trumore Güvenli Köprüsü üzerinden gerçekleştirilmektedir.");
-        bridgeNote.setVisibility(View.GONE);
-        content.addView(bridgeNote);
-        LinearLayout quickButtons = new LinearLayout(this);
-        Button paste = new Button(this);
-        paste.setText("Panodan Yapıştır");
-        paste.setOnClickListener(v -> {
-            ClipboardManager clipboard = (ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
-            if (clipboard != null && clipboard.hasPrimaryClip()) {
-                ClipData clip = clipboard.getPrimaryClip();
-                if (clip != null && clip.getItemCount() > 0) input.setText(clip.getItemAt(0).coerceToText(this));
-            }
-        });
-        quickButtons.addView(paste, new LinearLayout.LayoutParams(0, -2, 1));
-        VehicleTelemetry telemetry = currentTelemetry;
-        if (telemetry != null && (telemetry.latitude != 0 || telemetry.longitude != 0)) {
-            Button vehicleLocation = new Button(this);
-            vehicleLocation.setText("Aracın Konumu");
-            vehicleLocation.setOnClickListener(v -> input.setText(telemetry.latitude + ", " + telemetry.longitude));
-            quickButtons.addView(vehicleLocation, new LinearLayout.LayoutParams(0, -2, 1));
-        }
-        content.addView(quickButtons);
-        Button resolveButton = new Button(this);
-        resolveButton.setText("Çözümle");
-        content.addView(resolveButton);
-        AlertDialog.Builder dialogBuilder = new AlertDialog.Builder(this)
-                .setTitle("Rota / Konumu Akıllı Cihaza Aktar")
-                .setView(content)
-                .setNegativeButton("İptal", null)
-                .setPositiveButton("⚡ Tek Tıkla Araca İlet (Togg Cloud)", null)
-                .setNeutralButton("🧭 Araç Navigasyonunu Başlat", null);
-        AlertDialog dialog = dialogBuilder.create();
-        final GezRouteBridge.GezPoint[] resolved = new GezRouteBridge.GezPoint[1];
-        final int[] selectedStop = {-1};
-        Runnable resolve = () -> {
-            resolved[0] = null;
-            progress.setVisibility(View.VISIBLE);
-            status.setText("Hedef adres ve koordinatlar çözümleniyor...");
-            GezRouteBridge.resolveAsync(this, input.getText().toString(), new GezRouteBridge.Callback() {
-                @Override public void onResolved(GezRouteBridge.GezPoint point) {
-                    if (!dialog.isShowing()) return;
-                    resolved[0] = point;
-                    directDispatch.setVisibility(View.VISIBLE);
-                    stopList.removeAllViews();
-                    final List<LinearLayout> stopCards = new ArrayList<>();
-                    routeTitle.setVisibility(point.hasMultipleStops() ? View.VISIBLE : View.GONE);
-                    bridgeNote.setVisibility(point.hasMultipleStops() ? View.VISIBLE : View.GONE);
-                    selectedStop[0] = -1;
-                    if (point.hasMultipleStops()) {
-                        GezRouteBridge.GezPoint destination = point.stops.get(point.stops.size() - 1);
-                        dialog.getButton(AlertDialog.BUTTON_POSITIVE).setText("🚀 Varış Hedefini Gez'e Aktar (" + destination.name + ")");
-                        dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setText("🧭 Tüm Rotayı Navigasyonda Aç (" + point.stops.size() + " Durak)");
-                        bridgeNote.setText("ℹ️ Trumore ve Araç Gez altyapısı tek seferde tek hedef kabul eder. Ara durakları yukarıdaki listeden sırayla aracınıza aktarabilir, tüm rotayı aynı anda takip etmek için harita navigasyonunu başlatabilirsiniz.");
-                        routeTitle.setText("📍 Çoklu Duraklı Rota (" + point.stops.size() + " Durak):");
-                        for (int i = 0; i < point.stops.size(); i++) {
-                            final int index = i;
-                            GezRouteBridge.GezPoint stop = point.stops.get(i);
-                            LinearLayout row = new LinearLayout(MainActivity.this);
-                            row.setOrientation(LinearLayout.HORIZONTAL);
-                            row.setGravity(Gravity.CENTER_VERTICAL);
-                            stopCards.add(row);
-                            TextView details = new TextView(MainActivity.this);
-                            row.addView(details, new LinearLayout.LayoutParams(0, -2, 1));
-                            LinearLayout rowActions = new LinearLayout(MainActivity.this);
-                            rowActions.setOrientation(LinearLayout.VERTICAL);
-                            Button choose = new Button(MainActivity.this);
-                            Button cloudDispatch = new Button(MainActivity.this);
-                            cloudDispatch.setText("⚡ Araca İlet");
-                            cloudDispatch.setTextColor(getColor(R.color.white));
-                            cloudDispatch.setBackgroundResource(R.drawable.btn_gradient);
-                            cloudDispatch.setTextSize(10);
-                            rowActions.addView(cloudDispatch);
-                            rowActions.addView(choose);
-                            row.addView(rowActions);
-                            updateStopCardUi(row, i == selectedStop[0], stop, i, point.stops.size());
-                            choose.setOnClickListener(view -> {
-                                boolean opened = GezRouteBridge.openInTrumore(MainActivity.this, stop.lat, stop.lon, stop.name);
-                                if (opened) {
-                                    Toast.makeText(MainActivity.this, "Trumore açılıyor... Akıllı cihazınıza aktarılıyor.", Toast.LENGTH_LONG).show();
-                                    dialog.dismiss();
-                                } else Toast.makeText(MainActivity.this, "Trumore açılamadı.", Toast.LENGTH_LONG).show();
-                            });
-                            cloudDispatch.setOnClickListener(view -> dispatchGezCloud(dialog, stop, true));
-                            LinearLayout.LayoutParams rowParams = new LinearLayout.LayoutParams(-1, -2);
-                            rowParams.bottomMargin = dpToPx(8);
-                            stopList.addView(row, rowParams);
-                        }
-                    }
-                    progress.setVisibility(View.GONE);
-                    status.setText("📍 " + point.name + "\n🗺️ " + point.lat + ", " + point.lon);
-                    status.setTextColor(0xff2e7d32);
-                }
-                @Override public void onError(String error) {
-                    if (!dialog.isShowing()) return;
-                    directDispatch.setVisibility(View.GONE);
-                    progress.setVisibility(View.GONE);
-                    status.setText(error);
-                    status.setTextColor(0xffc62828);
-                }
-            });
-        };
-        resolveButton.setOnClickListener(v -> resolve.run());
-        directDispatch.setOnClickListener(v -> {
-            GezRouteBridge.GezPoint point = resolved[0];
-            if (point == null) { Toast.makeText(this, "Önce hedefi çözümleyin.", Toast.LENGTH_SHORT).show(); return; }
-            dispatchGezCloud(dialog, point, false);
-        });
-        dialog.setOnShowListener(ignored -> {
-            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
-                if (resolved[0] == null) resolve.run();
-                else dispatchGezCloud(dialog, resolved[0], false);
-            });
-            dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener(v -> dispatchGezTarget(dialog, resolved[0], selectedStop[0], false, resolve));
-        });
-        dialog.show();
-        if (initial != null && !initial.trim().isEmpty()) resolve.run();
+        vehicleRouteDialog = VehicleRouteDialog.show(this, storage, prefill);
     }
 
-    private void updateStopCardUi(LinearLayout card, boolean isSelected, GezRouteBridge.GezPoint stop, int index, int totalStops) {
-        String role = index == 0 ? "1. Durak / Başlangıç"
-                : index == totalStops - 1 ? (index + 1) + ". Durak / Varış Hedefi"
-                : (index + 1) + ". Durak / Ara Durak";
-        TextView details = (TextView) card.getChildAt(0);
-        LinearLayout actions = (LinearLayout) card.getChildAt(1);
-        Button choose = (Button) actions.getChildAt(1);
-        int paddingH = dpToPx(12), paddingV = dpToPx(10);
-        card.setPadding(paddingH, paddingV, paddingH, paddingV);
-        card.setBackgroundColor(isSelected ? 0xFF064E3B : 0xFF1E293B);
-        details.setText(role + "\n" + (stop.name == null ? "Durak" : stop.name) + "\n" + stop.lat + ", " + stop.lon
-                + (isSelected ? "  ✓ Seçili" : ""));
-        details.setTextSize(14);
-        android.text.SpannableString styled = new android.text.SpannableString(details.getText());
-        int firstBreak = styled.toString().indexOf('\n');
-        int secondBreak = styled.toString().indexOf('\n', firstBreak + 1);
-        styled.setSpan(new android.text.style.ForegroundColorSpan(isSelected ? 0xFF10B981 : 0xFF00C2D6), 0, firstBreak, 0);
-        styled.setSpan(new android.text.style.StyleSpan(Typeface.BOLD), 0, firstBreak, 0);
-        styled.setSpan(new android.text.style.ForegroundColorSpan(0xFFF8FAFC), firstBreak + 1, secondBreak, 0);
-        styled.setSpan(new android.text.style.StyleSpan(Typeface.BOLD), firstBreak + 1, secondBreak, 0);
-        styled.setSpan(new android.text.style.ForegroundColorSpan(isSelected ? 0xFFA7F3D0 : 0xFF94A3B8), secondBreak + 1, styled.length(), 0);
-        details.setText(styled);
-        choose.setText(isSelected ? "✓ Trumore" : "Trumore");
-        choose.setTextColor(isSelected ? 0xFFFFFFFF : 0xFF00C2D6);
-        choose.setBackgroundResource(isSelected ? R.drawable.btn_gradient : R.drawable.btn_outline);
-    }
-    private void dispatchGezTarget(AlertDialog dialog, GezRouteBridge.GezPoint point, int selectedIndex, boolean trumore, Runnable resolve) {
-        if (point == null) { resolve.run(); return; }
-        GezRouteBridge.GezPoint target = selectedIndex >= 0 && selectedIndex < point.stops.size() ? point.stops.get(selectedIndex) : point;
-        boolean opened = selectedIndex < 0
-                ? (trumore ? GezRouteBridge.openInTrumore(this, point) : GezRouteBridge.openInNavigation(this, point))
-                : (trumore ? GezRouteBridge.openInTrumore(this, target.lat, target.lon, target.name)
-                : GezRouteBridge.openInNavigation(this, target.lat, target.lon, target.name));
-        if (opened) {
-            if (trumore && point.hasMultipleStops() && selectedIndex < 0) {
-                Toast.makeText(this, "Varış noktası (" + target.name + ") Trumore üzerinden akıllı cihaza aktarılıyor... (Ara durakları listeden sırayla aktarabilirsiniz)", Toast.LENGTH_LONG).show();
-            } else if (trumore) {
-                Toast.makeText(this, target.name + " Trumore üzerinden akıllı cihaza aktarılıyor...", Toast.LENGTH_LONG).show();
-            } else Toast.makeText(this, "Araç navigasyonu başlatılıyor.", Toast.LENGTH_LONG).show();
-            dialog.dismiss();
-        } else Toast.makeText(this, trumore ? "Trumore açılamadı." : "Navigasyon açılamadı.", Toast.LENGTH_LONG).show();
-    }
-
-    private void dispatchGezCloud(AlertDialog dialog, GezRouteBridge.GezPoint point, boolean isStop) {
-        String name = point.name == null || point.name.trim().isEmpty() ? "Hedef" : point.name;
-        Toast.makeText(this, "Togg Cloud ile araca iletiliyor: " + name, Toast.LENGTH_SHORT).show();
-        GezRouteBridge.dispatchToVehicleCloud(this, storage, point, new GezRouteBridge.CloudCallback() {
-            @Override public void onSuccess(String message) {
-                runOnUiThread(() -> {
-                    if (message.startsWith("CLOUD|")) {
-                        Toast.makeText(MainActivity.this, isStop
-                                ? "⚡ Durak Togg bulutu üzerinden doğrudan T10X ekranına aktarıldı: " + name
-                                : "⚡ Rota Togg bulutu üzerinden doğrudan T10X ekranına aktarıldı: " + name,
-                                Toast.LENGTH_LONG).show();
-                    } else Toast.makeText(MainActivity.this, message.substring("TRUMORE|".length()), Toast.LENGTH_LONG).show();
-                    if (dialog != null && dialog.isShowing()) dialog.dismiss();
-                });
-            }
-            @Override public void onError(String message) {
-                runOnUiThread(() -> Toast.makeText(MainActivity.this, "Hedef iletilemedi: " + message, Toast.LENGTH_LONG).show());
-            }
-        });
-    }
     private void openAbrp() {
         Intent appIntent = getPackageManager().getLaunchIntentForPackage("com.iternio.abrpapp");
         if (appIntent == null) appIntent = getPackageManager().getLaunchIntentForPackage("com.iternio.abrp");
@@ -2079,12 +1862,30 @@ public final class MainActivity extends Activity {
     private View buildHomeCard(String key, VehicleTelemetry t) {
         LinearLayout card = new LinearLayout(this);
         card.setOrientation(LinearLayout.VERTICAL);
-        card.setBackgroundResource(R.drawable.card_bg);
-        card.setPadding(dpToPx(14), dpToPx(14), dpToPx(14), dpToPx(14));
+        card.setBackgroundResource(CARD_BATTERY.equals(key) ? R.drawable.card_bg_mint
+                : CARD_DRIVE.equals(key) ? R.drawable.card_bg_blue
+                : CARD_12V.equals(key) ? R.drawable.card_bg_lavender : R.drawable.card_bg);
+        card.setPadding(dpToPx(18), dpToPx(20), dpToPx(18), dpToPx(20));
         card.setGravity(Gravity.CENTER);
-        card.setMinimumHeight(dpToPx(115));
+        card.setMinimumHeight(dpToPx(156));
         card.setClickable(true);
         card.setFocusable(true);
+
+        String title = CARD_BATTERY.equals(key) ? "BATARYA" : CARD_12V.equals(key) ? "12V AKÜ"
+                : CARD_DRIVE.equals(key) ? "SÜRÜŞ" : CARD_TIRES.equals(key) ? "LASTİKLER"
+                : CARD_CONTROLS.equals(key) ? "KONTROLLER" : CARD_CLIMATE.equals(key) ? "KABİN" : "";
+        if (!title.isEmpty()) {
+            TextView caption = new TextView(this);
+            caption.setText(title);
+            caption.setTextColor(getColor(CARD_BATTERY.equals(key) ? R.color.accent_togg
+                    : CARD_DRIVE.equals(key) ? R.color.accent_blue
+                    : CARD_12V.equals(key) ? R.color.accent_purple : R.color.text_secondary));
+            caption.setTextSize(11);
+            caption.setLetterSpacing(0.12f);
+            caption.setGravity(Gravity.CENTER);
+            caption.setPadding(0, 0, 0, dpToPx(12));
+            card.addView(caption);
+        }
 
         switch (key) {
             case CARD_BATTERY: {
@@ -2135,7 +1936,7 @@ public final class MainActivity extends Activity {
 
                 TextView socTv = new TextView(this);
                 socTv.setText("%" + t.lowVoltage12vPercent + " Kapasite");
-                socTv.setTextColor(getColor(R.color.accent_togg));
+                socTv.setTextColor(getColor(R.color.accent_purple));
                 socTv.setTextSize(16);
                 socTv.setTypeface(null, Typeface.BOLD);
                 socTv.setPadding(0, dpToPx(4), 0, 0);
@@ -2144,7 +1945,7 @@ public final class MainActivity extends Activity {
                 card.addView(socTv);
 
                 TextView statusTv = new TextView(this);
-                statusTv.setText(t.is12vBatteryLow() ? "⚠️ Aracı çalıştırın" : "✓ Akü sağlıklı");
+                statusTv.setText(t.is12vBatteryLow() ? "⚠︎ Aracı çalıştırın" : "✓ Akü sağlıklı");
                 statusTv.setTextColor(getColor(t.is12vBatteryLow() ? R.color.status_red : R.color.status_green));
                 statusTv.setTextSize(13);
                 statusTv.setPadding(0, dpToPx(4), 0, 0);
@@ -2207,7 +2008,7 @@ public final class MainActivity extends Activity {
 
                 TextView durTv = new TextView(this);
                 durTv.setText(durStr);
-                durTv.setTextColor(getColor(R.color.accent_togg));
+                durTv.setTextColor(getColor(R.color.accent_blue));
                 durTv.setTextSize(16);
                 durTv.setTypeface(null, Typeface.BOLD);
                 durTv.setPadding(0, dpToPx(4), 0, 0);
@@ -2230,22 +2031,22 @@ public final class MainActivity extends Activity {
             case CARD_CONTROLS: {
 
                 Button lockBtn = new Button(this);
-                lockBtn.setText(isDoorLocked ? "🔓 Kilit Aç" : "🔒 Kilitle");
+                lockBtn.setText(isDoorLocked ? " Kilit Aç" : " Kilitle");
                 lockBtn.setTextColor(getColor(R.color.accent_togg));
                 lockBtn.setBackgroundResource(R.drawable.btn_outline);
                 lockBtn.setTextSize(11);
-                LinearLayout.LayoutParams b1Lp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dpToPx(38));
+                LinearLayout.LayoutParams b1Lp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dpToPx(48));
                 b1Lp.topMargin = dpToPx(8);
                 lockBtn.setLayoutParams(b1Lp);
                 lockBtn.setOnClickListener(v -> toggleDoorLock());
                 card.addView(lockBtn);
 
                 Button trunkBtn = new Button(this);
-                trunkBtn.setText(isTrunkOpen ? "Bagaj Kapat" : "🚗 Bagaj Aç");
+                trunkBtn.setText(isTrunkOpen ? "Bagaj Kapat" : " Bagaj Aç");
                 trunkBtn.setTextColor(getColor(R.color.accent_togg));
                 trunkBtn.setBackgroundResource(R.drawable.btn_outline);
                 trunkBtn.setTextSize(11);
-                LinearLayout.LayoutParams b2Lp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dpToPx(38));
+                LinearLayout.LayoutParams b2Lp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dpToPx(48));
                 b2Lp.topMargin = dpToPx(6);
                 trunkBtn.setLayoutParams(b2Lp);
                 trunkBtn.setOnClickListener(v -> confirmAndToggleTrunk());
@@ -2257,12 +2058,11 @@ public final class MainActivity extends Activity {
                 LinearLayout headerRow = new LinearLayout(this);
                 headerRow.setOrientation(LinearLayout.HORIZONTAL);
                 headerRow.setGravity(Gravity.CENTER_VERTICAL);
-                headerRow.addView(createIconHeader("🔑"));
+                headerRow.addView(createIconHeader(""));
                 View spacer = new View(this);
                 headerRow.addView(spacer, new LinearLayout.LayoutParams(0, 1, 1.0f));
 
-                DigitalKeyManager keyMgr = new DigitalKeyManager(this);
-                DigitalKey dKey = keyMgr.getActiveKey();
+                DigitalKey dKey = getRelayKey();
                 boolean hasKey = dKey != null && dKey.isValid();
 
                 headerRow.addView(createHeaderBadge(hasKey ? "Aktif" : "Anahtar", hasKey ? R.color.status_green : R.color.text_muted));
@@ -2284,7 +2084,7 @@ public final class MainActivity extends Activity {
                 card.addView(keySub);
 
                 Button keyBtn = new Button(this);
-                keyBtn.setText(hasKey ? "⌚ Saate Aktar" : "Anahtar Ekle");
+                keyBtn.setText(hasKey ? " Saate Aktar" : "Anahtar Ekle");
                 keyBtn.setTextColor(getColor(R.color.white));
                 keyBtn.setBackgroundResource(R.drawable.btn_gradient);
                 keyBtn.setTextSize(11);
@@ -2294,7 +2094,7 @@ public final class MainActivity extends Activity {
                 keyBtn.setOnClickListener(v -> {
                     if (hasKey) {
                         WearSyncManager.syncDigitalKey(this, dKey);
-                        Toast.makeText(this, "Dijital anahtar saate aktarılıyor... ⌚", Toast.LENGTH_SHORT).show();
+                        Toast.makeText(this, "Dijital anahtar saate aktarılıyor... ", Toast.LENGTH_SHORT).show();
                     } else {
                         showManageDigitalKeyDialog();
                     }
@@ -2302,7 +2102,7 @@ public final class MainActivity extends Activity {
                 card.addView(keyBtn);
 
                 Button emotorBtn = new Button(this);
-                emotorBtn.setText("⚡ e-Motor (Sürüşe Hazır)");
+                emotorBtn.setText("ϟ e-Motor (Sürüşe Hazır)");
                 emotorBtn.setTextColor(getColor(R.color.white));
                 emotorBtn.setBackgroundResource(R.drawable.btn_gradient);
                 emotorBtn.setTextSize(11);
@@ -2329,6 +2129,7 @@ public final class MainActivity extends Activity {
                 // Front Tires Row (Above '+' axis)
                 LinearLayout frontRow = new LinearLayout(this);
                 frontRow.setOrientation(LinearLayout.HORIZONTAL);
+                frontRow.setLayoutParams(new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
                 frontRow.setGravity(Gravity.CENTER);
 
                 View flBox = buildTireSubBox("Sol Ön", t.getTirePressurePsiFL(), t.tireTempFL, t.tirePressureFL < 2.2);
@@ -2371,6 +2172,7 @@ public final class MainActivity extends Activity {
                 // Rear Tires Row (Below '+' axis)
                 LinearLayout rearRow = new LinearLayout(this);
                 rearRow.setOrientation(LinearLayout.HORIZONTAL);
+                rearRow.setLayoutParams(new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
                 rearRow.setGravity(Gravity.CENTER);
 
                 View rlBox = buildTireSubBox("Sol Arka", t.getTirePressurePsiRL(), t.tireTempRL, t.tirePressureRL < 2.2);
@@ -2432,13 +2234,10 @@ public final class MainActivity extends Activity {
         card.addView(durTv);
 
         // In-App Embedded Google Maps WebView
-        double lat = (t.latitude != 0.0) ? t.latitude : storage.getLastLat();
-        double lon = (t.longitude != 0.0) ? t.longitude : storage.getLastLon();
-        if (lat == 0.0 && lon == 0.0) {
-            lat = 39.925054;
-            lon = 32.834755;
-        }
-
+        double lat = hasUsableCoordinates(t.latitude, t.longitude) ? t.latitude : storage.getLastLat();
+        double lon = hasUsableCoordinates(t.latitude, t.longitude) ? t.longitude : storage.getLastLon();
+        boolean hasLocation = hasUsableCoordinates(lat, lon);
+        if (hasLocation) {
         WebView mapWebView = new WebView(this);
         LinearLayout.LayoutParams mapLp = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, dpToPx(190));
@@ -2447,6 +2246,11 @@ public final class MainActivity extends Activity {
         mapWebView.setLayoutParams(mapLp);
         mapWebView.setBackgroundResource(R.drawable.bg_map_frame);
         mapWebView.setClipToOutline(true);
+        android.graphics.ColorMatrix mapColors = new android.graphics.ColorMatrix();
+        mapColors.setSaturation(0f);
+        android.graphics.Paint mapPaint = new android.graphics.Paint();
+        mapPaint.setColorFilter(new android.graphics.ColorMatrixColorFilter(mapColors));
+        mapWebView.setLayerType(View.LAYER_TYPE_HARDWARE, mapPaint);
 
         WebSettings ws = mapWebView.getSettings();
         ws.setJavaScriptEnabled(true);
@@ -2506,16 +2310,25 @@ public final class MainActivity extends Activity {
                 + "</style>"
                 + "</head><body>"
                 + "<div class='map-wrap'>"
-                + "<div class='map-loader' id='loader'>📍 Harita Yükleniyor...</div>"
+                + "<div class='map-loader' id='loader'> Harita Yükleniyor...</div>"
                 + "<iframe src='https://maps.google.com/maps?q=" + lat + "," + lon + "&amp;hl=tr&amp;z=16&amp;output=embed' allowfullscreen onload=\"var el=document.getElementById('loader');if(el)el.style.display='none';\"></iframe>"
                 + "</div></body></html>";
 
         mapWebView.loadDataWithBaseURL("https://maps.google.com", mapHtml, "text/html", "UTF-8", null);
         card.addView(mapWebView);
         mapWebView.postDelayed(() -> scheduleMapSnapshotCapture(mapWebView), 2800);
+        } else {
+            TextView noLocation = new TextView(this);
+            noLocation.setText("Araç konumu mevcut değil");
+            noLocation.setTextColor(getColor(R.color.text_muted));
+            noLocation.setGravity(Gravity.CENTER);
+            noLocation.setLayoutParams(new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, dpToPx(120)));
+            card.addView(noLocation);
+        }
 
         Button navBtn = new Button(this);
-        navBtn.setText("🧭 Haritada Aracıma Yürü / Navigasyon");
+        navBtn.setText("Haritada Aracıma Yürü / Navigasyon");
         navBtn.setTextColor(getColor(R.color.white));
         navBtn.setBackgroundResource(R.drawable.btn_gradient);
         navBtn.setTextSize(12);
@@ -2595,7 +2408,7 @@ public final class MainActivity extends Activity {
         box.setGravity(Gravity.CENTER);
         box.setBackgroundResource(isLow ? R.drawable.tire_subcard_low : R.drawable.tire_subcard_bg);
         box.setPadding(dpToPx(6), dpToPx(4), dpToPx(6), dpToPx(4));
-        box.setLayoutParams(new LinearLayout.LayoutParams(dpToPx(68), ViewGroup.LayoutParams.WRAP_CONTENT));
+        box.setLayoutParams(new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
 
         TextView posTv = new TextView(this);
         posTv.setText(label);
@@ -2607,7 +2420,8 @@ public final class MainActivity extends Activity {
         box.addView(posTv);
 
         TextView valTv = new TextView(this);
-        valTv.setText(String.format(Locale.US, "%.1f", psi));
+        valTv.setText((isLow ? "! " : "") + String.format(Locale.US, "%.1f", psi));
+        box.setContentDescription(label + ": " + psi + " PSI" + (isLow ? ", düşük basınç" : ""));
         valTv.setTextSize(15);
         valTv.setTypeface(null, Typeface.BOLD);
         valTv.setTextColor(getColor(isLow ? R.color.status_red : R.color.text_primary));
@@ -2676,7 +2490,7 @@ public final class MainActivity extends Activity {
         }
 
         AlertDialog.Builder builder = new AlertDialog.Builder(this);
-        builder.setTitle("⚙️ Ana Sayfayı Özelleştir");
+        builder.setTitle(" Ana Sayfayı Özelleştir");
 
         ScrollView scrollView = new ScrollView(this);
         LinearLayout listLayout = new LinearLayout(this);
@@ -2784,11 +2598,11 @@ public final class MainActivity extends Activity {
 
     private String getCardDisplayName(String key) {
         switch (key) {
-            case CARD_BATTERY: return "⚡ Yüksek Voltaj Batarya";
-            case CARD_DRIVE: return "📊 Sürüş & Yolculuk";
-            case CARD_TIRES: return "🛞 Lastik Basınçları (PSI)";
-            case CARD_LOCATION: return "📍 Son Park Yeri & Konum";
-            case CARD_12V: return "🔋 12V Alçak Gerilim Aküsü";
+            case CARD_BATTERY: return "ϟ Yüksek Voltaj Batarya";
+            case CARD_DRIVE: return " Sürüş & Yolculuk";
+            case CARD_TIRES: return " Lastik Basınçları (PSI)";
+            case CARD_LOCATION: return " Son Park Yeri & Konum";
+            case CARD_12V: return " 12V Alçak Gerilim Aküsü";
             default: return null;
         }
     }
@@ -2805,7 +2619,7 @@ public final class MainActivity extends Activity {
         super.onActivityResult(requestCode, resultCode, data);
         if (requestCode == REQ_TOGG_LOGIN && resultCode == RESULT_OK) {
             if (storage.isDemoVin()) {
-                showVinInputDialog("Togg ID Girişi Başarılı! 🎉");
+                showVinInputDialog("Togg ID Girişi Başarılı! ");
             } else {
                 Toast.makeText(this, "Togg ID ile canlı veriler senkronize ediliyor...", Toast.LENGTH_SHORT).show();
                 refreshTelemetry();
@@ -2817,7 +2631,7 @@ public final class MainActivity extends Activity {
         if (isFinishing() || isDestroyed()) return;
 
         AlertDialog.Builder builder = new AlertDialog.Builder(this);
-        builder.setTitle("🚗 Aracınızın Şasi Numarası (VIN)");
+        builder.setTitle(" Aracınızın Şasi Numarası (VIN)");
 
         StringBuilder msg = new StringBuilder();
         if (headerMessage != null && !headerMessage.isEmpty()) {
@@ -2888,12 +2702,13 @@ public final class MainActivity extends Activity {
         if (abrpShortcut != null) abrpShortcut.setOnClickListener(v -> { dialogInstance.dismiss(); showAbrpSettingsDialog(); });
         if (customizeCards != null) customizeCards.setOnClickListener(v -> { dialogInstance.dismiss(); showCustomizeHomeDialog(); });
         DigitalKey savedKey = new DigitalKeyManager(this).getActiveKey();
-        if (keyStatus != null) keyStatus.setText(savedKey != null && savedKey.isValid() ? "Kayıtlı anahtar: " + savedKey.getRemainingTimeDisplay() : "Anahtar Tanımsız");
+        if (keyStatus != null) keyStatus.setText("Smart Access: " + bleManager.getAccessStatusText()
+                + (savedKey != null ? "\nDavet kaydı: " + (savedKey.isValid() ? savedKey.getRemainingTimeDisplay() : "Aktivasyon bekliyor") : ""));
         if (manageKey != null) manageKey.setOnClickListener(v -> { dialogInstance.dismiss(); showManageDigitalKeyDialog(); });
         if (syncKey != null) syncKey.setOnClickListener(v -> {
-            DigitalKey key = new DigitalKeyManager(this).getActiveKey();
+            DigitalKey key = getRelayKey();
             if (key != null && key.isValid()) { WearSyncManager.syncDigitalKey(this, key); Toast.makeText(this, "Dijital anahtar saate aktarılıyor.", Toast.LENGTH_SHORT).show(); }
-            else Toast.makeText(this, "Önce dijital anahtar ekleyin.", Toast.LENGTH_SHORT).show();
+            else Toast.makeText(this, "Önce Smart Access oturumunu yetkilendirin.", Toast.LENGTH_SHORT).show();
         });
         if (themeGroup != null) {
             String theme = storage.getAppTheme();
@@ -2909,12 +2724,12 @@ public final class MainActivity extends Activity {
             if (hasAuth) {
                 tvAuthStatus.setText("Durum: ✅ Togg ID Bağlı (Token Aktif)");
                 tvAuthStatus.setTextColor(getColor(R.color.status_green));
-                if (btnToggLogin != null) btnToggLogin.setText("🔄 Togg ID Oturumunu Yenile");
+                if (btnToggLogin != null) btnToggLogin.setText("Togg ID Oturumunu Yenile");
                 if (btnToggLogout != null) btnToggLogout.setVisibility(View.VISIBLE);
             } else {
-                tvAuthStatus.setText("Durum: ⚠️ Bağlı Değil (Simülasyon Modu)");
+                tvAuthStatus.setText("Durum: ⚠︎ Bağlı Değil (Simülasyon Modu)");
                 tvAuthStatus.setTextColor(getColor(R.color.status_amber));
-                if (btnToggLogin != null) btnToggLogin.setText("🔑 Togg ID ile Giriş Yap");
+                if (btnToggLogin != null) btnToggLogin.setText("Togg ID ile Giriş Yap");
                 if (btnToggLogout != null) btnToggLogout.setVisibility(View.GONE);
             }
         }
@@ -3097,13 +2912,7 @@ public final class MainActivity extends Activity {
     }
 
     private void applyThemeBeforeContent() {
-        String theme = storage.getAppTheme();
-        if ("light".equals(theme)) setTheme(R.style.Theme_ToggCompanion_Light);
-        else if ("dark".equals(theme)) setTheme(R.style.Theme_ToggCompanion_Dark);
-        else {
-            int night = getResources().getConfiguration().uiMode & android.content.res.Configuration.UI_MODE_NIGHT_MASK;
-            setTheme(night == android.content.res.Configuration.UI_MODE_NIGHT_YES ? R.style.Theme_ToggCompanion_Dark : R.style.Theme_ToggCompanion_Light);
-        }
+        setTheme(R.style.Theme_ToggCompanion_Dark);
     }
 
     private String formatSyncTime(long millis) {
@@ -3121,7 +2930,7 @@ public final class MainActivity extends Activity {
         if (isFinishing() || isDestroyed()) return;
 
         AlertDialog.Builder builder = new AlertDialog.Builder(this);
-        builder.setTitle("✏️ Araç İsmini Düzenle");
+        builder.setTitle(" Araç İsmini Düzenle");
         builder.setMessage("Ana sayfada görüntülenecek araç model veya isminizi giriniz:");
 
         LinearLayout layout = new LinearLayout(this);
@@ -3171,8 +2980,10 @@ public final class MainActivity extends Activity {
 
     @Override
     protected void onDestroy() {
+        if (smartAccessSetupDialog != null) smartAccessSetupDialog.dismiss();
         bleManager.removeListener(bleListener);
         bleManager.removeTelemetryListener(bleTelemetryListener);
+        bleManager.removeAccessListener(accessListener);
         if (instance == this) {
             instance = null;
         }

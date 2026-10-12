@@ -13,18 +13,18 @@
 
     <!-- Red Wing / Chevron (Left side, Turkish Red) -->
     <path
-        android:fillColor="#E30613"
+        android:fillColor="#BEBEBE"
         android:pathData="M 48,36 L 28,54 L 48,72 L 44,72 L 22,54 L 44,36 Z" />
     <path
-        android:fillColor="#FF334B"
+        android:fillColor="#BEBEBE"
         android:pathData="M 44,40 L 30,54 L 44,68 L 41,68 L 26,54 L 41,40 Z" />
 
     <!-- Blue Wing / Chevron (Right side, Togg Electric Blue) -->
     <path
-        android:fillColor="#00A3E0"
+        android:fillColor="#BEBEBE"
         android:pathData="M 60,36 L 80,54 L 60,72 L 64,72 L 86,54 L 64,36 Z" />
     <path
-        android:fillColor="#33C2FF"
+        android:fillColor="#BEBEBE"
         android:pathData="M 64,40 L 78,54 L 64,68 L 67,68 L 82,54 L 67,40 Z" />
 
     <!-- Central Diamond Core (Pure Crisp White) -->
@@ -42,9 +42,9 @@
 
     <!-- Left Red Indicator Dot & Right Blue Indicator Dot -->
     <path
-        android:fillColor="#E30613"
+        android:fillColor="#BEBEBE"
         android:pathData="M 17,54 A 3,3 0 1,0 17,53.9 Z" />
     <path
-        android:fillColor="#00A3E0"
+        android:fillColor="#BEBEBE"
         android:pathData="M 91,54 A 3,3 0 1,0 91,53.9 Z" />
 </vector>

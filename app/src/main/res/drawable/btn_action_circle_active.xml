@@ -1,11 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
-<shape xmlns:android="http://schemas.android.com/apk/res/android"
-    android:shape="oval">
-    <solid android:color="@color/card_inner" />
-    <size
-        android:width="54dp"
-        android:height="54dp" />
-    <stroke
-        android:width="1.5dp"
-        android:color="@color/accent_togg" />
-</shape>
+<ripple xmlns:android="http://schemas.android.com/apk/res/android" android:color="@color/glass_ripple"><item><layer-list>
+    <item><shape android:shape="oval">
+        <gradient android:angle="270" android:startColor="#66FFFFFF" android:endColor="#12FFFFFF" />
+    </shape></item>
+    <item android:left="1dp" android:top="1dp" android:right="1dp" android:bottom="1dp">
+        <shape android:shape="oval">
+            <gradient android:angle="270" android:startColor="#FF393939" android:endColor="#E60C0C0C" />
+        </shape>
+    </item>
+</layer-list></item></ripple>

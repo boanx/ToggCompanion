@@ -25,6 +25,7 @@ public class WatchWearableListenerService extends WearableListenerService {
     private static final String TAG = "WatchWearListener";
     private static final String PATH_TELEMETRY = "/togg_telemetry";
     private static final String PATH_DIGITAL_KEY = "/togg_digital_key";
+    private static final String PATH_KEY_ACTION_RESULT = "/key_action_result";
 
     @Override
     public void onDataChanged(@NonNull DataEventBuffer dataEvents) {
@@ -36,18 +37,22 @@ public class WatchWearableListenerService extends WearableListenerService {
                 if (uri.getPath() != null && uri.getPath().equals(PATH_TELEMETRY)) {
                     try {
                         DataMap dataMap = DataMapItem.fromDataItem(item).getDataMap();
-                        int soc = dataMap.getInt("soc", 78);
-                        int rangeKm = dataMap.getInt("range_km", 385);
+                        if (!dataMap.containsKey("soc") || !dataMap.containsKey("range_km")) {
+                            Log.w(TAG, "Ignored incomplete telemetry DataMap");
+                            continue;
+                        }
+                        int soc = dataMap.getInt("soc", 0);
+                        int rangeKm = dataMap.getInt("range_km", 0);
                         boolean isCharging = dataMap.getBoolean("is_charging", false);
                         double chargePower = dataMap.getDouble("charge_power_kw", 0.0);
-                        int batt12v = dataMap.getInt("batt12v_soc", 88);
+                        int batt12v = dataMap.getInt("batt12v_soc", 0);
                         boolean batt12vAlert = dataMap.getBoolean("batt12v_alert", false);
-                        boolean tiresNormal = dataMap.getBoolean("tires_normal", true);
-                        String tiresSummary = dataMap.getString("tires_summary", "Normal (36 PSI)");
-                        double lat = dataMap.getDouble("latitude", 40.9901);
-                        double lon = dataMap.getDouble("longitude", 29.0292);
-                        String address = dataMap.getString("park_address", "Kadıköy, İstanbul");
-                        long ts = dataMap.getLong("timestamp", System.currentTimeMillis());
+                        boolean tiresNormal = dataMap.getBoolean("tires_normal", false);
+                        String tiresSummary = dataMap.getString("tires_summary", "Lastik verisi alınmadı");
+                        double lat = dataMap.getDouble("latitude", 0.0);
+                        double lon = dataMap.getDouble("longitude", 0.0);
+                        String address = dataMap.getString("park_address", "Araç konumu alınmadı");
+                        long ts = dataMap.getLong("timestamp", 0);
 
                         WatchTelemetry telemetry = new WatchTelemetry(
                                 soc, rangeKm, isCharging, chargePower,
@@ -73,8 +78,8 @@ public class WatchWearableListenerService extends WearableListenerService {
                                     true,
                                     dataMap.getString("dk_id", ""),
                                     dataMap.getString("dk_se_id", ""),
-                                    dataMap.getString("dk_vin", "T10F"),
-                                    dataMap.getString("dk_plate", "34 TOGG 10"),
+                                    dataMap.getString("dk_vin", ""),
+                                    dataMap.getString("dk_plate", ""),
                                     dataMap.getString("dk_holder", "Paylaşılan Kullanıcı"),
                                     dataMap.getLong("dk_valid_until", 0),
                                     dataMap.getString("dk_token", ""),
@@ -133,8 +138,8 @@ public class WatchWearableListenerService extends WearableListenerService {
                             true,
                             obj.optString("keyId"),
                             obj.optString("seId"),
-                            obj.optString("vehicleVin", "T10F"),
-                            obj.optString("vehiclePlate", "34 TOGG 10"),
+                            obj.optString("vehicleVin", ""),
+                            obj.optString("vehiclePlate", ""),
                             obj.optString("recipientName", "Paylaşılan Kullanıcı"),
                             obj.optLong("validUntilMillis", 0),
                             obj.optString("keyToken"),
@@ -149,6 +154,16 @@ public class WatchWearableListenerService extends WearableListenerService {
                 ToggTileService.requestTileUpdate(this);
             } catch (Exception e) {
                 Log.e(TAG, "Error handling message digital key", e);
+            }
+        } else if (PATH_KEY_ACTION_RESULT.equals(messageEvent.getPath())) {
+            try {
+                JSONObject result = new JSONObject(new String(messageEvent.getData(), StandardCharsets.UTF_8));
+                String message = result.optString("message", "Komut sonucu alınamadı.");
+                boolean success = result.optBoolean("success", false);
+                android.widget.Toast.makeText(this, message, android.widget.Toast.LENGTH_LONG).show();
+                if (success) ToggTileService.requestTileUpdate(this);
+            } catch (Exception e) {
+                Log.e(TAG, "Error handling watch action result", e);
             }
         }
     }

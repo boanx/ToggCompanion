@@ -17,19 +17,37 @@ public class DigitalKeyTest {
         assertEquals("TOKEN_SECURE_123", key.keyToken);
         assertEquals("NL1CFB0P800100522", key.vehicleVin);
         assertEquals("34 TOGG 10", key.vehiclePlate);
-        assertTrue(key.isValid());
+        assertFalse("Invitation parsing cannot provision Smart Access", key.isValid());
+        assertFalse(key.canLock);
+        assertFalse(key.canStartDrive);
         assertFalse(key.isExpired());
     }
 
     @Test
-    public void testHttpsInvitationUrlParsing() {
+    public void testHttpsInvitationUrlParsing() throws Exception {
         String webUrl = "https://trumore.app/keysharingInvitation?seId=SE-991122&token=TOKEN_WEB_777";
         DigitalKey key = DigitalKeyManager.parseFromInput(webUrl);
 
         assertNotNull(key);
         assertEquals("SE-991122", key.seId);
         assertEquals("TOKEN_WEB_777", key.keyToken);
-        assertTrue(key.isValid());
+        assertFalse(key.isValid());
+        assertEquals("", key.vehicleVin);
+        assertEquals("", key.vehiclePlate);
+        assertEquals("Araç bilgisi bilinmiyor", key.getVehicleDisplay());
+
+        String wrapped = "trumore-superapp://custom/redirection?target="
+                + java.net.URLEncoder.encode(webUrl + "&vin=VIN%2B123&plate=06%20TEST", "UTF-8");
+        DigitalKey redirected = DigitalKeyManager.parseFromUri(null, wrapped);
+        assertNotNull(redirected);
+        assertEquals(key.seId, redirected.seId);
+        assertEquals("VIN+123", redirected.vehicleVin);
+        assertEquals("06 TEST", redirected.vehiclePlate);
+        for (int i = 0; i < 4; i++) {
+            wrapped = "trumore-superapp://custom/redirection?target="
+                    + java.net.URLEncoder.encode(wrapped, "UTF-8");
+        }
+        assertNull("Excessive nested redirections must be rejected", DigitalKeyManager.parseFromUri(null, wrapped));
     }
 
     @Test
@@ -39,8 +57,38 @@ public class DigitalKeyTest {
 
         assertNotNull("Should detect SE- reference code in text", key);
         assertEquals("SE-B45901", key.seId);
-        assertTrue(key.isValid());
+        assertFalse(key.isValid());
+        assertEquals("", key.keyToken);
+        assertEquals("", key.vehicleVin);
+        assertEquals("", key.vehiclePlate);
         assertTrue(key.recipientName.contains("SE-B45901"));
+    }
+
+    @Test public void arbitraryTextDoesNotBecomeAnAuthorizedKey() {
+        assertNull(DigitalKeyManager.parseFromInput("abcdef123456"));
+    }
+
+    @Test public void importedJsonCannotGrantItselfPermissions() throws Exception {
+        JSONObject invitation = new JSONObject().put("seId", "SE-TEST").put("keyToken", "test-token")
+                .put("isActive", true).put("canLock", true).put("canStartDrive", true);
+        DigitalKey key = DigitalKeyManager.parseFromInput(invitation.toString());
+        assertNotNull(key);
+        assertFalse(key.isValid());
+        assertFalse(key.canLock);
+        assertFalse(key.canStartDrive);
+        assertEquals("", key.vehicleVin);
+        assertEquals("", key.vehiclePlate);
+        DigitalKey empty = DigitalKey.fromJson(new JSONObject());
+        assertFalse(empty.isValid());
+        assertFalse(empty.canUnlock);
+        assertEquals(0L, empty.validUntilMillis);
+        assertEquals("", empty.vehicleVin);
+        assertEquals("", empty.vehiclePlate);
+        assertEquals("Araç bilgisi bilinmiyor", empty.getVehicleDisplay());
+        DigitalKey missingMetadata = new DigitalKey("KEY-UNKNOWN", "SE-TEST", null, null, null,
+                0, 0, false, false, false, false, false, null, false, 0);
+        assertEquals("", missingMetadata.vehicleVin);
+        assertEquals("", missingMetadata.vehiclePlate);
     }
 
     @Test
@@ -80,6 +128,10 @@ public class DigitalKeyTest {
         assertEquals(original.canTrunk, restored.canTrunk);
         assertEquals(original.keyToken, restored.keyToken);
         assertEquals(original.isActive, restored.isActive);
+        assertEquals("06 TOGG 06 (NL1TESTVIN)", restored.getVehicleDisplay());
+        DigitalKey sample = DigitalKey.createSampleKey();
+        assertEquals("T10F-DEV-001", sample.vehicleVin);
+        assertEquals("34 TOGG 10", sample.vehiclePlate);
     }
 
     @Test

@@ -16,8 +16,8 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
- * Manages Trumore digital key redemption, URL/invitation parsing, persistence,
- * and authorization lifecycle.
+ * Stores digital key metadata and parses pending invitations. Parsing an
+ * invitation does not provision the VIN-bound Smart Access keystore/certificate.
  */
 public final class DigitalKeyManager {
     private static final String TAG = "DigitalKeyManager";
@@ -25,6 +25,7 @@ public final class DigitalKeyManager {
     private static final String ENCRYPTED_PREF_NAME = "togg_digital_key_prefs_encrypted";
     private static final String KEY_SAVED_JSON = "active_digital_key_json";
     private static final String KEY_ENCRYPTED_MIGRATION_COMPLETE = "__encrypted_migration_complete";
+    private static final int MAX_REDIRECTION_DEPTH = 4;
 
     public interface OnKeyChangeListener {
         void onKeyChanged(DigitalKey activeKey);
@@ -135,7 +136,11 @@ public final class DigitalKeyManager {
         if (trimmed.startsWith("{") && trimmed.endsWith("}")) {
             try {
                 JSONObject obj = new JSONObject(trimmed);
-                return DigitalKey.fromJson(obj);
+                DigitalKey parsed = DigitalKey.fromJson(obj);
+                if (parsed == null) return null;
+                return new DigitalKey(parsed.keyId, parsed.seId, parsed.vehicleVin, parsed.vehiclePlate,
+                        parsed.recipientName, parsed.validFromMillis, parsed.validUntilMillis,
+                        false, false, false, false, false, parsed.keyToken, false, parsed.createdAtMillis);
             } catch (Exception ignored) {}
         }
 
@@ -163,31 +168,14 @@ public final class DigitalKeyManager {
             return new DigitalKey(
                     "KEY-" + refCode,
                     refCode,
-                    "T10F-DEV-001",
-                    "34 TOGG 10",
+                    "",
+                    "",
                     "Trumore Referanslı Anahtar (" + refCode + ")",
                     System.currentTimeMillis(),
-                    System.currentTimeMillis() + (30L * 24 * 3600 * 1000),
-                    true, true, true, true, true,
-                    "TRUMORE_REF_TOKEN_" + refCode,
-                    true,
-                    System.currentTimeMillis()
-            );
-        }
-
-        // 5. Fallback: If user entered an arbitrary token or code > 6 characters
-        if (trimmed.length() >= 6 && !trimmed.contains(" ") && !trimmed.contains("<")) {
-            return new DigitalKey(
-                    "KEY-MANUAL-" + System.currentTimeMillis(),
-                    trimmed,
-                    "T10F-DEV-001",
-                    "34 TOGG 10",
-                    "Özel Tanımlı Anahtar",
-                    System.currentTimeMillis(),
-                    System.currentTimeMillis() + (30L * 24 * 3600 * 1000),
-                    true, true, true, true, true,
-                    trimmed,
-                    true,
+                    0,
+                    false, false, false, false, false,
+                    "",
+                    false,
                     System.currentTimeMillis()
             );
         }
@@ -212,6 +200,11 @@ public final class DigitalKeyManager {
     }
 
     public static DigitalKey parseFromUri(Uri uri, String rawUrl) {
+        return parseFromUri(uri, rawUrl, 0);
+    }
+
+    private static DigitalKey parseFromUri(Uri uri, String rawUrl, int redirectionDepth) {
+        if (redirectionDepth > MAX_REDIRECTION_DEPTH) return null;
         if (uri == null && rawUrl == null) return null;
 
         String seId = getQueryParam(uri, rawUrl, "seId");
@@ -226,10 +219,10 @@ public final class DigitalKeyManager {
             String target = getQueryParam(uri, rawUrl, "target");
             if (target != null && !target.isEmpty()) {
                 try {
-                    String decodedTarget = URLDecoder.decode(target, StandardCharsets.UTF_8.name());
+                    // getQueryParam already decodes one URL encoding layer.
                     Uri nextUri = null;
-                    try { nextUri = Uri.parse(decodedTarget); } catch (Exception ignored) {}
-                    return parseFromUri(nextUri, decodedTarget);
+                    try { nextUri = Uri.parse(target); } catch (Exception ignored) {}
+                    return parseFromUri(nextUri, target, redirectionDepth + 1);
                 } catch (Exception ignored) {}
             }
         }
@@ -245,12 +238,12 @@ public final class DigitalKeyManager {
 
         if (seId != null || token != null) {
             String resolvedSeId = (seId != null && !seId.isEmpty()) ? seId : "SE-" + System.currentTimeMillis();
-            String resolvedToken = (token != null && !token.isEmpty()) ? token : "TOKEN_" + resolvedSeId;
-            String resolvedVin = (vin != null && !vin.isEmpty()) ? vin : "T10F-DEV-001";
-            String resolvedPlate = (plate != null && !plate.isEmpty()) ? plate : "34 TOGG 10";
+            String resolvedToken = token != null ? token : "";
+            String resolvedVin = vin != null ? vin : "";
+            String resolvedPlate = plate != null ? plate : "";
             String resolvedRecipient = (recipient != null && !recipient.isEmpty()) ? recipient : "Trumore Paylaşılan Anahtar";
 
-            long validUntil = System.currentTimeMillis() + (30L * 24 * 3600 * 1000);
+            long validUntil = 0;
             if (validUntilStr != null) {
                 try {
                     validUntil = Long.parseLong(validUntilStr);
@@ -265,9 +258,9 @@ public final class DigitalKeyManager {
                     resolvedRecipient,
                     System.currentTimeMillis(),
                     validUntil,
-                    true, true, true, true, true,
+                    false, false, false, false, false,
                     resolvedToken,
-                    true,
+                    false,
                     System.currentTimeMillis()
             );
         }

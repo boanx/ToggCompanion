@@ -7,20 +7,20 @@
     <string name="status_demo">DEMO</string>
 
     <!-- Tab Titles with Minimalist Icons -->
-    <string name="tab_home">🏠 Ana Sayfa</string>
-    <string name="tab_battery">⚡ Batarya</string>
-    <string name="tab_aux_battery">🔋 12V Akü</string>
-    <string name="tab_tires">🛞 Lastikler</string>
-    <string name="tab_climate">❄️ Klima</string>
-    <string name="tab_security">🔒 Güvenlik</string>
-    <string name="tab_drive">📊 Sürüş</string>
-    <string name="tab_location">📍 Konum</string>
+    <string name="tab_home">Ana Sayfa</string>
+    <string name="tab_battery">ϟ Batarya</string>
+    <string name="tab_aux_battery">12V Akü</string>
+    <string name="tab_tires">Lastikler</string>
+    <string name="tab_climate">Klima</string>
+    <string name="tab_security">Güvenlik</string>
+    <string name="tab_drive">Sürüş</string>
+    <string name="tab_location">Konum</string>
 
     <!-- Trip Selection Pills -->
     <string name="trip_current">Güncel Sürüş</string>
     <string name="trip_last_charge">Son Şarjdan</string>
     <string name="trip_my">Yolculuğum</string>
-    <string name="home_customize">⚙️ Ana Sayfayı Düzenle</string>
+    <string name="home_customize">Ana Sayfayı Düzenle</string>
     <string name="home_title">T10F Kontrol Paneli</string>
 
     <!-- 1. Batarya & Şarj -->

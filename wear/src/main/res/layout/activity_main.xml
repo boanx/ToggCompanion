@@ -104,7 +104,7 @@
                     android:layout_width="0dp"
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
-                    android:text="🔋 12V Destek Aküsü"
+                    android:text="12V Destek Aküsü"
                     android:textColor="@color/text_muted"
                     android:textSize="11sp"
                     android:textStyle="bold" />
@@ -148,7 +148,7 @@
                     android:layout_width="0dp"
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
-                    android:text="🛞 Lastik Basınçları"
+                    android:text="Lastik Basınçları"
                     android:textColor="@color/text_muted"
                     android:textSize="11sp"
                     android:textStyle="bold" />
@@ -185,7 +185,7 @@
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="📍 Araç Konumu"
+                android:text="Araç Konumu"
                 android:textColor="@color/text_muted"
                 android:textSize="11sp"
                 android:textStyle="bold" />
@@ -207,19 +207,19 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="3dp"
-                android:text="240 m Kuzeydoğu ↗️"
+                android:text="240 m Kuzeydoğu ↗"
                 android:textColor="@color/accent_blue"
                 android:textSize="12sp" />
 
             <Button
                 android:id="@+id/btn_walk_to_car"
                 android:layout_width="match_parent"
-                android:layout_height="36dp"
+                android:layout_height="48dp"
                 android:layout_marginTop="8dp"
                 android:background="@drawable/btn_watch_primary"
                 android:elevation="0dp"
                 android:stateListAnimator="@null"
-                android:text="🗺️ Araca Yürü"
+                android:text="Araca Yürü"
                 android:textColor="@color/white"
                 android:textSize="11sp"
                 android:textStyle="bold" />
@@ -245,7 +245,7 @@
                     android:layout_width="0dp"
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
-                    android:text="🔑 Dijital Anahtar"
+                    android:text="Dijital Anahtar"
                     android:textColor="@color/accent_purple"
                     android:textSize="11sp"
                     android:textStyle="bold" />
@@ -280,13 +280,13 @@
                 <Button
                     android:id="@+id/btn_watch_key_lock"
                     android:layout_width="0dp"
-                    android:layout_height="34dp"
+                    android:layout_height="48dp"
                     android:layout_marginEnd="4dp"
                     android:layout_weight="1"
                     android:background="@drawable/btn_watch_dark"
                     android:elevation="0dp"
                     android:stateListAnimator="@null"
-                    android:text="🔒 Kilitle"
+                    android:text="Kilitle"
                     android:textColor="@color/white"
                     android:textSize="11sp"
                     android:textStyle="bold" />
@@ -294,13 +294,13 @@
                 <Button
                     android:id="@+id/btn_watch_key_unlock"
                     android:layout_width="0dp"
-                    android:layout_height="34dp"
+                    android:layout_height="48dp"
                     android:layout_marginStart="4dp"
                     android:layout_weight="1"
                     android:background="@drawable/btn_watch_primary"
                     android:elevation="0dp"
                     android:stateListAnimator="@null"
-                    android:text="🔓 Aç"
+                    android:text="Aç"
                     android:textColor="@color/white"
                     android:textSize="11sp"
                     android:textStyle="bold" />
@@ -311,12 +311,12 @@
         <Button
             android:id="@+id/btn_sync_request"
             android:layout_width="match_parent"
-            android:layout_height="36dp"
+            android:layout_height="48dp"
             android:layout_marginTop="12dp"
             android:background="@drawable/btn_watch_dark"
             android:elevation="0dp"
             android:stateListAnimator="@null"
-            android:text="🔄 Telefondan Güncelle"
+            android:text="Telefondan Güncelle"
             android:textColor="@color/text_primary"
             android:textSize="11sp" />
 

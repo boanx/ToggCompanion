@@ -13,7 +13,7 @@ import java.util.TimeZone;
  * Parses JSON payloads returned by Togg TVA (Telematics & Vehicle Access) endpoints
  * into strongly-typed VehicleTelemetry instances.
  *
- * Implements full support for Trumore 2.1.25 DeviceInformationResponse data schema:
+ * Parses the supported DeviceInformationResponse fields and common aliases:
  *   - DeviceInformationResponse -> telemetry -> battery -> content -> batteryStateOfCharge -> batteryStateOfChargeValue
  *   - DeviceInformationResponse -> telemetry -> vehicleRange -> content -> estRange -> range
  *   - DeviceInformationResponse -> telemetry -> batteryPowerStatus -> batteryPowerStatusContent -> lowVoltageStateOfChargeValue
@@ -30,7 +30,7 @@ public final class TelemetryParser {
 
     public static VehicleTelemetry parse(String jsonString, String defaultVin, String defaultPlate) {
         if (jsonString == null || jsonString.trim().isEmpty()) {
-            return createDemoSnapshot(defaultVin, defaultPlate);
+            return null;
         }
 
         try {
@@ -204,9 +204,9 @@ public final class TelemetryParser {
             String powerStatus = findString(telem, "", "powerMode", "ignitionState", "powerStatus", "powerState", "vehiclePowerStatus");
             Boolean readyFlag = findBoolean(telem, null, "isReadyToDrive", "readyToDrive", "ready", "driveReady");
             double vehicleSpeed = findDouble(telem, 0.0, "speed", "vehicleSpeed", "currentSpeed", "carSpeed");
-            boolean isReadyToDrive = containsAny(readyStatus, "READY", "DRIVE", "DRIVING", "RUNNING", "MOVING", "ACTIVE", "POWER_ON")
-                    || containsAny(powerStatus, "READY", "DRIVE", "RUNNING", "ON", "ACTIVE")
-                    || Boolean.TRUE.equals(readyFlag) || vehicleSpeed > 0;
+            boolean isReadyToDrive = readyFlag != null ? readyFlag
+                    : matchesAnyState(readyStatus, "READY", "DRIVE", "DRIVING", "RUNNING", "MOVING")
+                        || matchesAnyState(powerStatus, "READY", "DRIVE", "DRIVING") || vehicleSpeed > 0;
             boolean headlightsOn = findBoolean(telem, false, "headlightsOn", "headlights", "lightsOn");
 
             JSONObject secObj = telem.optJSONObject("security");
@@ -260,11 +260,12 @@ public final class TelemetryParser {
             JSONObject locContent = locObj != null ? locObj.optJSONObject("content") : null;
             if (locContent == null && locObj != null) locContent = locObj;
 
-            double lat = findDouble(locContent != null ? locContent.optJSONObject("latitude") : null, -1.0, "latitudeValue", "latitude", "lat");
-            if (lat < 0) lat = findDouble(locObj, 39.925054, "latitudeValue", "latitude", "lat");
+            double lat = findDouble(locContent != null ? locContent.optJSONObject("latitude") : null, Double.NaN, "latitudeValue", "latitude", "lat");
+            if (!isValidLatitude(lat)) lat = findDouble(locObj, Double.NaN, "latitudeValue", "latitude", "lat");
 
-            double lon = findDouble(locContent != null ? locContent.optJSONObject("longitude") : null, -1.0, "longitudeValue", "longitude", "lon", "lng");
-            if (lon < 0) lon = findDouble(locObj, 32.834755, "longitudeValue", "longitude", "lon", "lng");
+            double lon = findDouble(locContent != null ? locContent.optJSONObject("longitude") : null, Double.NaN, "longitudeValue", "longitude", "lon", "lng");
+            if (!isValidLongitude(lon)) lon = findDouble(locObj, Double.NaN, "longitudeValue", "longitude", "lon", "lng");
+            if (!isValidLatitude(lat) || !isValidLongitude(lon)) { lat = 0.0; lon = 0.0; }
 
             String parkAddr = findString(locObj, null, "parkAddress", "address");
             if (parkAddr == null || parkAddr.trim().isEmpty() || parkAddr.equalsIgnoreCase("Ankara, Çankaya")) {
@@ -290,14 +291,22 @@ public final class TelemetryParser {
                     timestamp, currentTrip, lastChargeTrip, myTrip, headlightsOn, isReadyToDrive
             );
         } catch (JSONException e) {
-            return createDemoSnapshot(defaultVin, defaultPlate);
+            return null;
         }
     }
 
-    private static boolean containsAny(String value, String... tokens) {
-        String upper = value == null ? "" : value.toUpperCase(Locale.ROOT);
-        for (String token : tokens) if (upper.contains(token)) return true;
+    private static boolean matchesAnyState(String value, String... tokens) {
+        String upper = value == null ? "" : value.trim().toUpperCase(Locale.ROOT);
+        for (String token : tokens) if (upper.equals(token)) return true;
         return false;
+    }
+
+    private static boolean isValidLatitude(double value) {
+        return Double.isFinite(value) && value >= -90.0 && value <= 90.0;
+    }
+
+    private static boolean isValidLongitude(double value) {
+        return Double.isFinite(value) && value >= -180.0 && value <= 180.0;
     }
 
     private static VehicleTelemetry.TripData parseTripData(JSONObject tripObj, double fallbackDist, int fallbackDur, double fallbackCons, int fallbackSpd) {
@@ -606,7 +615,7 @@ public final class TelemetryParser {
                 16.8,       // 16.8 kWh/100km Tüketim
                 58,         // Ortalama 58 km/s
                 // 7. Konum & Park
-                39.925054, 32.834755, // Ankara Koordinatları
+                 0.0, 0.0, // Konum yok: demo verisi gerçek araç konumu gibi kullanılmamalı
                 "Aracın konumu belirleniyor...",
                 0,        // Park süresi hesaplanır
                 System.currentTimeMillis() - 75 * 60 * 1000L,

@@ -56,7 +56,7 @@ public final class ToggAppWidgetProvider extends AppWidgetProvider {
         int[] ids = manager.getAppWidgetIds(new ComponentName(context, ToggAppWidgetProvider.class));
         for (int id : ids) {
             RemoteViews views = new RemoteViews(context.getPackageName(), R.layout.widget_togg);
-            views.setTextViewText(R.id.widget_updated, "Yenileniyor... ⏳");
+            views.setTextViewText(R.id.widget_updated, "Yenileniyor... ");
             manager.partiallyUpdateAppWidget(id, views);
         }
 
@@ -133,18 +133,28 @@ public final class ToggAppWidgetProvider extends AppWidgetProvider {
         setTirePressure(views, R.id.widget_tire_rl, t.getTirePressurePsiRL());
         setTirePressure(views, R.id.widget_tire_rr, t.getTirePressurePsiRR());
 
-        double lat = t.latitude != 0.0 ? t.latitude : storage.getLastLat();
-        double lon = t.longitude != 0.0 ? t.longitude : storage.getLastLon();
-        if (lat == 0.0 && lon == 0.0) { lat = 39.925054; lon = 32.834755; }
+        boolean telemetryHasLocation = Double.isFinite(t.latitude) && Double.isFinite(t.longitude)
+                && t.latitude >= -90.0 && t.latitude <= 90.0
+                && t.longitude >= -180.0 && t.longitude <= 180.0
+                && !(t.latitude == 0.0 && t.longitude == 0.0);
+        double lat = telemetryHasLocation ? t.latitude : storage.getLastLat();
+        double lon = telemetryHasLocation ? t.longitude : storage.getLastLon();
+        boolean hasLocation = Double.isFinite(lat) && Double.isFinite(lon)
+                && lat >= -90.0 && lat <= 90.0 && lon >= -180.0 && lon <= 180.0
+                && !(lat == 0.0 && lon == 0.0);
+        String savedAddress = storage.getLastAddress();
+        boolean oldDemoLocation = lat == 39.925054 && lon == 32.834755
+                && (savedAddress == null || savedAddress.toLowerCase(Locale.ROOT).contains("belirleniyor"));
+        if (oldDemoLocation) { lat = 0.0; lon = 0.0; hasLocation = false; }
         String addr = t.parkAddress != null && !t.parkAddress.isEmpty() && !t.parkAddress.contains("belirleniyor")
                 ? t.parkAddress : storage.getLastAddress();
         if (addr == null || addr.trim().isEmpty() || addr.toLowerCase(Locale.ROOT).contains("belirleniyor")) {
-            String savedAddress = storage.getLastAddress();
             addr = savedAddress != null && !savedAddress.trim().isEmpty() && !savedAddress.toLowerCase(Locale.ROOT).contains("belirleniyor")
                     ? savedAddress : lat != 0.0 && lon != 0.0 ? String.format(Locale.US, "GPS: %.4f, %.4f", lat, lon) : "Konum bulunamadı";
         }
         views.setTextViewText(R.id.widget_address, addr);
-        views.setTextViewText(R.id.widget_coords, String.format(Locale.US, "%.5f, %.5f", lat, lon));
+        views.setTextViewText(R.id.widget_coords, hasLocation
+                ? String.format(Locale.US, "%.5f, %.5f", lat, lon) : "Konum yok");
         try {
             long vehicleSync = t.timestampMillis > 0 ? t.timestampMillis : storage.getLastSync();
             String mapTime = vehicleSync > 0
@@ -153,10 +163,16 @@ public final class ToggAppWidgetProvider extends AppWidgetProvider {
         } catch (Throwable th) {
             views.setImageViewResource(R.id.widget_map_view, android.R.color.transparent);
         }
-        Uri navigationUri = Uri.parse("google.navigation:q=" + lat + "," + lon + "&mode=d");
-        Intent mapIntent = new Intent(Intent.ACTION_VIEW, navigationUri);
-        if (mapIntent.resolveActivity(context.getPackageManager()) == null) {
-            mapIntent.setData(Uri.parse("geo:" + lat + "," + lon + "?q=" + lat + "," + lon + "(Togg T10F Park Yeri)"));
+        Intent mapIntent;
+        if (hasLocation) {
+            Uri navigationUri = Uri.parse("google.navigation:q=" + lat + "," + lon + "&mode=d");
+            mapIntent = new Intent(Intent.ACTION_VIEW, navigationUri);
+            if (mapIntent.resolveActivity(context.getPackageManager()) == null) {
+                mapIntent.setData(Uri.parse("geo:" + lat + "," + lon + "?q=" + lat + "," + lon + "(Togg T10F Park Yeri)"));
+            }
+        } else {
+            mapIntent = new Intent(context, com.togg.companion.ui.MainActivity.class)
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
         }
         PendingIntent mapPending = PendingIntent.getActivity(context, id + 20000, mapIntent,
                 PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
@@ -230,18 +246,15 @@ public final class ToggAppWidgetProvider extends AppWidgetProvider {
 
 
     private static int batteryColor(int percent) {
-        percent = Math.max(0, Math.min(100, percent));
-        if (percent < 20) return Color.rgb(239, 68, 68);
-        if (percent < 50) return Color.rgb(255, 184, 0);
-        if (percent < 80) return Color.rgb(0, 210, 211);
-        return Color.rgb(16, 185, 129);
+        if (percent < 20) return 0xFFE6AFB4;
+        if (percent < 50) return 0xFFE5CAA2;
+        return 0xFFA8DCC8;
     }
 
     private static int battery12vColor(int percent) {
-        percent = Math.max(0, Math.min(100, percent));
-        if (percent < 60) return Color.rgb(239, 68, 68);
-        if (percent < 80) return Color.rgb(255, 184, 0);
-        return Color.rgb(16, 185, 129);
+        if (percent < 60) return 0xFFE6AFB4;
+        if (percent < 80) return 0xFFE5CAA2;
+        return 0xFFC6B6E5;
     }
 
     private static Bitmap createHvBatteryBitmap(int percent) {
@@ -294,29 +307,29 @@ public final class ToggAppWidgetProvider extends AppWidgetProvider {
     private static Bitmap createRoadRangeBitmap(int rangeKm, boolean isCharging) {
         Bitmap bitmap = Bitmap.createBitmap(160, 74, Bitmap.Config.ARGB_8888);
         Canvas canvas = new Canvas(bitmap);
-        Paint asphaltCard = new Paint(Paint.ANTI_ALIAS_FLAG); asphaltCard.setColor(0xFF101923);
+        Paint asphaltCard = new Paint(Paint.ANTI_ALIAS_FLAG); asphaltCard.setColor(0xFF181818);
         canvas.drawRoundRect(new RectF(5, 5, 155, 67), 10f, 10f, asphaltCard);
-        Paint border = new Paint(Paint.ANTI_ALIAS_FLAG); border.setColor(0x5500D2D3); border.setStyle(Paint.Style.STROKE); border.setStrokeWidth(2f);
+        Paint border = new Paint(Paint.ANTI_ALIAS_FLAG); border.setColor(0x55BEBEBE); border.setStyle(Paint.Style.STROKE); border.setStrokeWidth(2f);
         canvas.drawRoundRect(new RectF(5, 5, 155, 67), 10f, 10f, border);
 
         Path road = new Path();
         road.moveTo(34, 67); road.lineTo(54, 5); road.lineTo(106, 5); road.lineTo(126, 67); road.close();
-        Paint roadFill = new Paint(Paint.ANTI_ALIAS_FLAG); roadFill.setColor(0xFF182533);
+        Paint roadFill = new Paint(Paint.ANTI_ALIAS_FLAG); roadFill.setColor(0xFF232323);
         canvas.drawPath(road, roadFill);
 
-        Paint shoulders = new Paint(Paint.ANTI_ALIAS_FLAG); shoulders.setColor(0x8800D2D3); shoulders.setStyle(Paint.Style.STROKE); shoulders.setStrokeWidth(2.5f);
+        Paint shoulders = new Paint(Paint.ANTI_ALIAS_FLAG); shoulders.setColor(0x88BEBEBE); shoulders.setStyle(Paint.Style.STROKE); shoulders.setStrokeWidth(2.5f);
         canvas.drawLine(34, 67, 54, 5, shoulders);
         canvas.drawLine(126, 67, 106, 5, shoulders);
 
-        Paint centerLines = new Paint(Paint.ANTI_ALIAS_FLAG); centerLines.setColor(0xFFFFD166); centerLines.setStyle(Paint.Style.STROKE); centerLines.setStrokeWidth(2.5f); centerLines.setStrokeCap(Paint.Cap.ROUND);
+        Paint centerLines = new Paint(Paint.ANTI_ALIAS_FLAG); centerLines.setColor(0xFFD3D3D3); centerLines.setStyle(Paint.Style.STROKE); centerLines.setStrokeWidth(2.5f); centerLines.setStrokeCap(Paint.Cap.ROUND);
         canvas.drawLine(80, 10, 80, 18, centerLines);
         canvas.drawLine(80, 26, 80, 36, centerLines);
         canvas.drawLine(80, 44, 80, 56, centerLines);
 
         RectF plate = new RectF(16, 17, 144, 55);
-        Paint plateFill = new Paint(Paint.ANTI_ALIAS_FLAG); plateFill.setColor(0xEE091118);
+        Paint plateFill = new Paint(Paint.ANTI_ALIAS_FLAG); plateFill.setColor(0xEE101010);
         canvas.drawRoundRect(plate, 8f, 8f, plateFill);
-        Paint plateStroke = new Paint(Paint.ANTI_ALIAS_FLAG); plateStroke.setColor(isCharging ? 0xFF62E6A6 : 0xFF00D2D3); plateStroke.setStyle(Paint.Style.STROKE); plateStroke.setStrokeWidth(1.5f);
+        Paint plateStroke = new Paint(Paint.ANTI_ALIAS_FLAG); plateStroke.setColor(isCharging ? 0xFFA8DCC8 : 0xFFABCDEF); plateStroke.setStyle(Paint.Style.STROKE); plateStroke.setStrokeWidth(1.5f);
         canvas.drawRoundRect(plate, 8f, 8f, plateStroke);
 
         Paint textPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
@@ -327,14 +340,14 @@ public final class ToggAppWidgetProvider extends AppWidgetProvider {
         textPaint.setShadowLayer(2f, 0, 1, Color.BLACK);
         Paint.FontMetrics pfm = textPaint.getFontMetrics();
         float pTextY = plate.centerY() - (pfm.ascent + pfm.descent) / 2f;
-        String label = (isCharging ? "⚡ " : "🛣️ ") + rangeKm + " km";
+        String label = (isCharging ? "ϟ " : " ") + rangeKm + " km";
         canvas.drawText(label, plate.centerX(), pTextY, textPaint);
         return bitmap;
     }
 
     private static void setTirePressure(RemoteViews views, int viewId, double pressurePsi) {
-        views.setTextViewText(viewId, String.format(Locale.US, "%.1f", pressurePsi));
-        views.setTextColor(viewId, pressurePsi < 32.0 ? 0xFFFF4343 : 0xFFFFFFFF);
+        views.setTextViewText(viewId, (pressurePsi < 32.0 ? "! " : "") + String.format(Locale.US, "%.1f", pressurePsi));
+        views.setTextColor(viewId, pressurePsi < 32.0 ? 0xFFE6AFB4 : 0xFFFFFFFF);
     }
 
     private static Bitmap createMapPreviewBitmap(Context context, double lat, double lon, String timeStr) {
@@ -348,7 +361,11 @@ public final class ToggAppWidgetProvider extends AppWidgetProvider {
                 if (snap != null) {
                     Rect src = new Rect(0, 0, snap.getWidth(), snap.getHeight());
                     Rect dst = new Rect(0, 0, 280, 140);
-                    canvas.drawBitmap(snap, src, dst, new Paint(Paint.FILTER_BITMAP_FLAG));
+                    Paint snapshotPaint = new Paint(Paint.FILTER_BITMAP_FLAG);
+                    android.graphics.ColorMatrix grayMap = new android.graphics.ColorMatrix();
+                    grayMap.setSaturation(0f);
+                    snapshotPaint.setColorFilter(new android.graphics.ColorMatrixColorFilter(grayMap));
+                    canvas.drawBitmap(snap, src, dst, snapshotPaint);
                     Paint scrim = new Paint(); scrim.setColor(0x33000000);
                     canvas.drawRect(0, 0, 280, 140, scrim);
                     hasSnapshot = true;
@@ -364,15 +381,15 @@ public final class ToggAppWidgetProvider extends AppWidgetProvider {
     }
 
     private static void drawRadarFallback(Canvas canvas, double lat, double lon) {
-        canvas.drawColor(0xFF0D1620);
+        canvas.drawColor(0xFF151515);
         Paint radar = new Paint(Paint.ANTI_ALIAS_FLAG);
-        radar.setColor(0x5537A6B5); radar.setStyle(Paint.Style.STROKE); radar.setStrokeWidth(1f);
+        radar.setColor(0x55BEBEBE); radar.setStyle(Paint.Style.STROKE); radar.setStrokeWidth(1f);
         for (int r = 20; r <= 60; r += 20) canvas.drawCircle(140, 70, r, radar);
         canvas.drawLine(140, 8, 140, 132, radar);
         canvas.drawLine(8, 70, 272, 70, radar);
         Paint label = new Paint(Paint.ANTI_ALIAS_FLAG);
         label.setColor(Color.WHITE); label.setTextSize(10f); label.setTextAlign(Paint.Align.CENTER);
-        canvas.drawText("📍 Harita önizlemesi için uygulamayı açın", 140f, 132f, label);
+        canvas.drawText(" Harita önizlemesi için uygulamayı açın", 140f, 132f, label);
     }
 
     private static void drawMapHud(Canvas canvas, double lat, double lon, String syncDateStr) {
@@ -387,14 +404,14 @@ public final class ToggAppWidgetProvider extends AppWidgetProvider {
         float right = 274f;
         float left = Math.max(6f, right - textWidth - 14f);
         Paint badge = new Paint(Paint.ANTI_ALIAS_FLAG);
-        badge.setColor(0xCC071018);
+        badge.setColor(0xCC0F0F0F);
         canvas.drawRoundRect(new RectF(left, 6f, right, 24f), 7f, 7f, badge);
         canvas.drawText(label, (left + right) / 2f, 18.5f, time);
-        Paint halo = new Paint(Paint.ANTI_ALIAS_FLAG); halo.setColor(0x2230E8F0); canvas.drawCircle(cx, cy, 29f, halo);
+        Paint halo = new Paint(Paint.ANTI_ALIAS_FLAG); halo.setColor(0x22ABCDEF); canvas.drawCircle(cx, cy, 29f, halo);
         Paint pulse = new Paint(Paint.ANTI_ALIAS_FLAG); pulse.setStyle(Paint.Style.STROKE); pulse.setStrokeWidth(2f);
-        pulse.setColor(0x6600D2D3); canvas.drawCircle(cx, cy, 24f, pulse);
-        pulse.setColor(0xAA00D2D3); canvas.drawCircle(cx, cy, 15f, pulse);
-        Paint pin = new Paint(Paint.ANTI_ALIAS_FLAG); pin.setColor(0xFF00D2D3); pin.setShadowLayer(5f, 0, 1, 0xAA00D2D3);
+        pulse.setColor(0x66ABCDEF); canvas.drawCircle(cx, cy, 24f, pulse);
+        pulse.setColor(0xAAABCDEF); canvas.drawCircle(cx, cy, 15f, pulse);
+        Paint pin = new Paint(Paint.ANTI_ALIAS_FLAG); pin.setColor(0xFFABCDEF); pin.setShadowLayer(5f, 0, 1, 0xAAABCDEF);
         canvas.drawCircle(cx, cy, 7f, pin);
         Paint center = new Paint(Paint.ANTI_ALIAS_FLAG); center.setColor(Color.WHITE);
         canvas.drawRoundRect(new RectF(cx - 3.5f, cy - 5.5f, cx + 3.5f, cy + 5.5f), 2f, 2f, center);

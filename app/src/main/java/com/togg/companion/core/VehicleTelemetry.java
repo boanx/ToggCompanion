@@ -475,6 +475,26 @@ public final class VehicleTelemetry implements Serializable {
         );
     }
 
+    /** Overlay only the fields carried by a verified Smart Access status. */
+    public VehicleTelemetry withSmartAccessStatus(SmartAccessProtocol.RawStatus status) {
+        if (status == null) return this;
+        boolean locked = status.lockState == SmartAccessProtocol.LockState.INIT_STATE
+                ? isLocked : status.lockState == SmartAccessProtocol.LockState.CLOSED;
+        return new VehicleTelemetry(vin, plate, batterySocPercent, estimatedRangeKm, isCharging, chargePowerKw,
+                chargeMode, chargeRemainingMinutes, targetChargeLimitPercent, batteryTotalCapacityKwh,
+                lastChargeEnergyKwh, lowVoltage12vPercent, lowVoltage12vVolts, tirePressureFL, tireTempFL,
+                tirePressureFR, tireTempFR, tirePressureRL, tireTempRL, tirePressureRR, tireTempRR,
+                tpmsSensorOk, cabinTempCelsius, targetHvacCelsius, outdoorTempCelsius, isClimateActive,
+                isDefrostActive, seatHeaterDriver, seatHeaterPassenger, steeringHeaterActive, locked,
+                status.ajarDriver, status.ajarCoDriver, status.ajarRearLeft, status.ajarRearRight,
+                status.ajarTrunkLid, frunkOpen, status.windowFrontLeft || status.windowFrontRight
+                || status.windowRearLeft || status.windowRearRight, chargePortOpen, true,
+                odometerKm, driveMode, lastTripDistanceKm, lastTripDurationMin, lastTripAvgConsumption,
+                lastTripAvgSpeed, latitude, longitude, parkAddress, parkDurationMinutes,
+                timestampMillis, currentTrip, lastChargeTrip, myTrip, headlightsOn,
+                status.vehStat == SmartAccessProtocol.PowerState.DRIVING);
+    }
+
     public VehicleTelemetry withLock(boolean locked) {
         return new VehicleTelemetry(
                 this.vin, this.plate, this.batterySocPercent, this.estimatedRangeKm,

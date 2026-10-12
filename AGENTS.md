@@ -1,5 +1,14 @@
 ﻿# Repository Agent Contract
 
+## User Build Restriction
+
+User instruction recorded on 12 October 2026: do not compile, assemble, package,
+rebuild, or regenerate APKs until the user explicitly requests a build. Ordinary
+edits, continuation requests and GitHub commit/push requests do not revoke this
+restriction. Keep only the latest deliverable APK outside the local `obsolete/`
+archive. This instruction takes precedence over routine build recommendations.
+Current source/build status: `docs/PROJECT_STATUS_2026_10_12.md`.
+
 All agents working in this repository must follow:
 
 - `docs/KB_PROTOCOL.md`

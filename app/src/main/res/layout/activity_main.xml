@@ -35,8 +35,9 @@
                 android:singleLine="true"
                 android:text="@string/vehicle_title"
                 android:textColor="@color/text_primary"
-                android:textSize="20sp"
-                android:textStyle="bold" />
+                android:textSize="28sp"
+                android:fontFamily="sans-serif-medium"
+                android:letterSpacing="-0.025" />
 
             <TextView
                 android:id="@+id/tv_sync_status"
@@ -54,7 +55,7 @@
             <Button
                 android:id="@+id/btn_settings"
                 android:layout_width="wrap_content"
-                android:layout_height="34dp"
+                android:layout_height="48dp"
                 android:layout_marginStart="8dp"
                 android:background="@drawable/btn_outline"
                 android:text="@string/action_settings"
@@ -237,7 +238,8 @@
             android:clipToPadding="false"
             android:fillViewport="true"
             android:paddingHorizontal="20dp"
-            android:scrollbars="vertical">
+            android:scrollbars="none"
+            android:overScrollMode="never">
 
             <LinearLayout
                 android:layout_width="match_parent"
@@ -254,6 +256,11 @@
                     android:orientation="vertical"
                     android:visibility="visible">
 
+                    <TextView
+                        android:layout_width="match_parent" android:layout_height="wrap_content"
+                        android:text="ARAÇ KONTROLÜ" android:textColor="@color/text_secondary"
+                        android:textSize="11sp" android:letterSpacing="0.16"
+                        android:paddingTop="8dp" android:paddingBottom="14dp" />
                     <!-- Top Circular Quick Actions Bar -->
                     <LinearLayout
                         android:layout_width="match_parent"
@@ -269,11 +276,11 @@
                             android:layout_height="wrap_content"
                             android:layout_marginTop="12dp"
                             android:layout_marginBottom="10dp"
-                            android:background="@drawable/card_bg"
+                            android:background="@drawable/tile_bg"
                             android:clickable="true"
                             android:focusable="true"
                             android:gravity="center"
-                            android:orientation="vertical"
+                            android:orientation="horizontal"
                             android:padding="16dp">
 
                             <ImageView
@@ -281,18 +288,20 @@
                                 android:layout_width="32dp"
                                 android:layout_height="32dp"
                                 android:contentDescription="e-Motor"
+                                android:layout_marginEnd="16dp"
                                 android:src="@drawable/ic_emotor" />
 
                             <LinearLayout
-                                android:layout_width="match_parent"
+                                android:layout_width="0dp"
+                                android:layout_weight="1"
                                 android:layout_height="wrap_content"
-                                android:gravity="center_horizontal"
+                                android:gravity="start"
                                 android:orientation="vertical">
 
                                 <TextView
                                     android:layout_width="match_parent"
                                     android:layout_height="wrap_content"
-                                    android:gravity="center"
+                                    android:gravity="start"
                                     android:text="e-Motor"
                                     android:textColor="@color/text_primary"
                                     android:textSize="16sp"
@@ -303,7 +312,7 @@
                                     android:layout_width="match_parent"
                                     android:layout_height="wrap_content"
                                     android:layout_marginTop="3dp"
-                                    android:gravity="center"
+                                    android:gravity="start"
                                     android:text="e-Motor Sürüşe Hazır Değil"
                                     android:textColor="@color/text_secondary"
                                     android:textSize="12sp" />
@@ -319,7 +328,7 @@
                             android:background="@drawable/badge_pill"
                             android:paddingHorizontal="14dp"
                             android:paddingVertical="6dp"
-                            android:text="⭕ Araç Bluetooth: Bağlı Değil (Dokun &amp; Bağlan)"
+                            android:text="Araç Bluetooth: Bağlı Değil (Dokun &amp; Bağlan)"
                             android:textColor="@color/text_secondary"
                             android:textSize="12sp"
                             android:clickable="true"
@@ -335,6 +344,17 @@
                             android:paddingVertical="4dp" />
                     </LinearLayout>
 
+                    <Button
+                        android:id="@+id/btn_send_route"
+                        android:layout_width="match_parent" android:layout_height="56dp"
+                        android:layout_marginBottom="16dp"
+                        android:background="@drawable/btn_gradient"
+                        android:text="Akıllı cihazıma aktar" android:textColor="@color/white"
+                        android:textSize="15sp" android:fontFamily="sans-serif-medium" />
+                    <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+                        android:text="ARAÇ ÖZETİ" android:textColor="@color/text_secondary"
+                        android:textSize="11sp" android:letterSpacing="0.16"
+                        android:paddingTop="8dp" android:paddingBottom="14dp" />
                     <!-- Dynamic Home Cards Container (2-Column Adaptive Grid) -->
                     <LinearLayout
                         android:id="@+id/home_cards_container"
@@ -357,7 +377,7 @@
                     <LinearLayout
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:layout_marginBottom="14dp"
+                        android:layout_marginBottom="18dp"
                         android:background="@drawable/card_bg"
                         android:orientation="vertical"
                         android:padding="20dp">
@@ -434,7 +454,7 @@
                     <LinearLayout
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:layout_marginBottom="14dp"
+                        android:layout_marginBottom="18dp"
                         android:background="@drawable/card_bg"
                         android:orientation="vertical"
                         android:padding="16dp">
@@ -513,7 +533,7 @@
                     <LinearLayout
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:layout_marginBottom="14dp"
+                        android:layout_marginBottom="18dp"
                         android:background="@drawable/card_bg"
                         android:orientation="vertical"
                         android:padding="16dp">
@@ -602,7 +622,7 @@
                     <LinearLayout
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:layout_marginBottom="14dp"
+                        android:layout_marginBottom="18dp"
                         android:background="@drawable/card_bg"
                         android:orientation="vertical"
                         android:padding="20dp">
@@ -654,7 +674,7 @@
                     <LinearLayout
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:layout_marginBottom="14dp"
+                        android:layout_marginBottom="18dp"
                         android:background="@drawable/tile_bg"
                         android:orientation="vertical"
                         android:padding="16dp">
@@ -691,7 +711,7 @@
                     <LinearLayout
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:layout_marginBottom="14dp"
+                        android:layout_marginBottom="18dp"
                         android:background="@drawable/card_bg"
                         android:orientation="vertical"
                         android:padding="16dp">
@@ -833,7 +853,7 @@
                     <LinearLayout
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:layout_marginBottom="14dp"
+                        android:layout_marginBottom="18dp"
                         android:background="@drawable/tile_bg"
                         android:orientation="vertical"
                         android:padding="14dp">
@@ -878,7 +898,7 @@
                     <LinearLayout
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:layout_marginBottom="14dp"
+                        android:layout_marginBottom="18dp"
                         android:background="@drawable/card_bg"
                         android:orientation="vertical"
                         android:padding="16dp">
@@ -972,7 +992,7 @@
                     <LinearLayout
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:layout_marginBottom="14dp"
+                        android:layout_marginBottom="18dp"
                         android:background="@drawable/card_bg"
                         android:orientation="vertical"
                         android:padding="16dp">
@@ -1011,7 +1031,7 @@
                             <Button
                                 android:id="@+id/btn_temp_minus"
                                 android:layout_width="44dp"
-                                android:layout_height="44dp"
+                                android:layout_height="48dp"
                                 android:background="@drawable/btn_circle"
                                 android:text="-"
                                 android:textColor="@color/accent_togg"
@@ -1031,7 +1051,7 @@
                             <Button
                                 android:id="@+id/btn_temp_plus"
                                 android:layout_width="44dp"
-                                android:layout_height="44dp"
+                                android:layout_height="48dp"
                                 android:background="@drawable/btn_circle"
                                 android:text="+"
                                 android:textColor="@color/accent_togg"
@@ -1048,7 +1068,7 @@
                             <Button
                                 android:id="@+id/btn_climate_toggle"
                                 android:layout_width="0dp"
-                                android:layout_height="44dp"
+                                android:layout_height="48dp"
                                 android:layout_marginEnd="4dp"
                                 android:layout_weight="1"
                                 android:background="@drawable/btn_gradient"
@@ -1060,7 +1080,7 @@
                             <Button
                                 android:id="@+id/btn_defrost"
                                 android:layout_width="0dp"
-                                android:layout_height="44dp"
+                                android:layout_height="48dp"
                                 android:layout_marginStart="4dp"
                                 android:layout_weight="1"
                                 android:background="@drawable/btn_outline"
@@ -1085,7 +1105,7 @@
                     <LinearLayout
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:layout_marginBottom="14dp"
+                        android:layout_marginBottom="18dp"
                         android:background="@drawable/card_bg"
                         android:orientation="vertical"
                         android:padding="16dp">
@@ -1126,7 +1146,7 @@
                                 <Button
                                     android:id="@+id/btn_door_toggle"
                                     android:layout_width="match_parent"
-                                    android:layout_height="40dp"
+                                    android:layout_height="48dp"
                                     android:layout_marginTop="8dp"
                                     android:background="@drawable/btn_outline"
                                     android:text="@string/action_toggle_doors"
@@ -1156,7 +1176,7 @@
                                 <Button
                                     android:id="@+id/btn_trunk_toggle"
                                     android:layout_width="match_parent"
-                                    android:layout_height="40dp"
+                                    android:layout_height="48dp"
                                     android:layout_marginTop="8dp"
                                     android:background="@drawable/btn_outline"
                                     android:text="@string/action_toggle_trunk"
@@ -1170,7 +1190,7 @@
                     <LinearLayout
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:layout_marginBottom="14dp"
+                        android:layout_marginBottom="18dp"
                         android:background="@drawable/card_bg"
                         android:orientation="vertical"
                         android:padding="16dp">
@@ -1229,7 +1249,7 @@
                         android:id="@+id/card_digital_key"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:layout_marginBottom="14dp"
+                        android:layout_marginBottom="18dp"
                         android:background="@drawable/card_bg"
                         android:orientation="vertical"
                         android:padding="16dp">
@@ -1244,7 +1264,7 @@
                                 android:layout_width="0dp"
                                 android:layout_height="wrap_content"
                                 android:layout_weight="1"
-                                android:text="🔑 Trumore Dijital Anahtar"
+                                android:text="Trumore Dijital Anahtar"
                                 android:textColor="@color/accent_purple"
                                 android:textSize="14sp"
                                 android:textStyle="bold" />
@@ -1285,7 +1305,7 @@
                                 android:layout_marginEnd="4dp"
                                 android:layout_weight="1"
                                 android:background="@drawable/btn_gradient"
-                                android:text="⌚ Saate Kopyala"
+                                android:text="Saate Kopyala"
                                 android:textColor="@color/white"
                                 android:textSize="12sp"
                                 android:textStyle="bold" />
@@ -1297,7 +1317,7 @@
                                 android:layout_marginStart="4dp"
                                 android:layout_weight="1"
                                 android:background="@drawable/btn_outline"
-                                android:text="🔑 Yönet / Ekle"
+                                android:text="Yönet / Ekle"
                                 android:textColor="@color/accent_purple"
                                 android:textSize="12sp"
                                 android:textStyle="bold" />
@@ -1318,7 +1338,7 @@
                     <LinearLayout
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:layout_marginBottom="14dp"
+                        android:layout_marginBottom="18dp"
                         android:background="@drawable/card_bg"
                         android:orientation="vertical"
                         android:padding="16dp">
@@ -1372,7 +1392,7 @@
                     <LinearLayout
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:layout_marginBottom="14dp"
+                        android:layout_marginBottom="18dp"
                         android:background="@drawable/card_bg"
                         android:orientation="vertical"
                         android:padding="16dp">
@@ -1568,7 +1588,7 @@
                     <LinearLayout
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:layout_marginBottom="14dp"
+                        android:layout_marginBottom="18dp"
                         android:background="@drawable/card_bg"
                         android:orientation="vertical"
                         android:padding="16dp">
@@ -1614,7 +1634,7 @@
                         android:id="@+id/btn_walk_to_car"
                         android:layout_width="match_parent"
                         android:layout_height="48dp"
-                        android:layout_marginBottom="14dp"
+                        android:layout_marginBottom="18dp"
                         android:background="@drawable/btn_gradient"
                         android:text="@string/action_walk_to_car"
                         android:textColor="@color/white"

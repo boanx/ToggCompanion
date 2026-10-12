@@ -1,9 +1,34 @@
-﻿<?xml version="1.0" encoding="utf-8"?>
+<?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="bg_dark">#05080E</color><color name="card_bg">#CC142032</color><color name="card_stroke">#26FFFFFF</color><color name="card_inner">#162132</color>
-    <color name="tire_low_bg">#2A1618</color><color name="tire_low_stroke">#EF4444</color>
-    <color name="accent_togg">#00C2D6</color><color name="accent_blue">#3874FF</color><color name="accent_purple">#8B5CF6</color>
-    <color name="status_green">#10B981</color><color name="status_amber">#F59E0B</color><color name="status_red">#EF4444</color>
-    <color name="text_primary">#F8FAFC</color><color name="text_secondary">#94A3B8</color><color name="text_muted">#64748B</color><color name="white">#FFFFFF</color><color name="divider">#1E293B</color>
+    <color name="bg_dark">#000000</color>
+    <color name="card_bg">#E6141414</color>
+    <color name="card_stroke">#33FFFFFF</color>
+    <color name="card_inner">#B31E1E1E</color>
+    <color name="tire_low_bg">#2A1D21</color>
+    <color name="tire_low_stroke">#E6AFB4</color>
+    <color name="accent_togg">#A8DCC8</color>
+    <color name="accent_blue">#ABCDEF</color>
+    <color name="accent_purple">#C6B6E5</color>
+    <color name="status_green">#A8DCC8</color>
+    <color name="status_amber">#E5CAA2</color>
+    <color name="status_red">#E6AFB4</color>
+    <color name="text_primary">#F5F5F5</color>
+    <color name="text_secondary">#B8B8B8</color>
+    <color name="text_muted">#929292</color>
+    <color name="white">#FFFFFF</color>
+    <color name="divider">#303030</color>
+    <color name="bg_light">#000000</color>
+    <color name="card_bg_light">#E6141414</color>
+    <color name="text_primary_light">#F5F5F5</color>
+    <color name="text_secondary_light">#B8B8B8</color>
+    <color name="glass_top">#E62B2B2B</color>
+    <color name="glass_bottom">#E60B0B0B</color>
+    <color name="glass_rim">#55FFFFFF</color>
+    <color name="glass_ripple">#26A8DCC8</color>
+    <color name="mint_surface_top">#FF28433B</color>
+    <color name="mint_surface_bottom">#FF14251F</color>
+    <color name="mint_rim">#80A8DCC8</color>
+    <color name="blue_surface_top">#FF203039</color>
+    <color name="blue_surface_bottom">#FF141C22</color>
+    <color name="blue_rim">#66ABCDEF</color>
 </resources>
-

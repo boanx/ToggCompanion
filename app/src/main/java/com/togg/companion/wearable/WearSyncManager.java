@@ -27,6 +27,7 @@ public final class WearSyncManager {
     public static final String PATH_DIGITAL_KEY = "/togg_digital_key";
     public static final String PATH_REQUEST_KEY = "/request_digital_key";
     public static final String PATH_KEY_ACTION = "/execute_key_action";
+    public static final String PATH_KEY_ACTION_RESULT = "/key_action_result";
 
     public static final String KEY_SOC = "soc";
     public static final String KEY_RANGE_KM = "range_km";

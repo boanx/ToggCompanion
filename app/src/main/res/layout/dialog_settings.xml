@@ -52,7 +52,7 @@
             android:layout_height="44dp"
             android:layout_marginTop="10dp"
             android:background="@drawable/btn_gradient"
-            android:text="🔑 Togg ID ile Giriş Yap"
+            android:text="Togg ID ile Giriş Yap"
             android:textColor="@color/white"
             android:textSize="13sp"
             android:textStyle="bold" />
@@ -75,7 +75,7 @@
         android:layout_height="44dp"
         android:layout_marginTop="8dp"
         android:background="@drawable/btn_outline"
-        android:text="🗺️ ABRP Canlı Rota ve Telemetri Ayarları"
+        android:text="ABRP Canlı Rota ve Telemetri Ayarları"
         android:textColor="@color/accent_togg"
         android:textSize="13sp"
         android:textStyle="bold" />
@@ -84,7 +84,7 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_marginTop="12dp"
-        android:text="⌚ Akıllı Saat ve Dijital Anahtar Eşleme"
+        android:text="Akıllı Saat ve Dijital Anahtar Eşleme"
         android:textColor="@color/accent_togg"
         android:textStyle="bold" />
 
@@ -100,29 +100,30 @@
         android:id="@+id/btn_settings_manage_key"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:text="🔑 Dijital Anahtar Ekle / Yönet" />
+        android:text="Dijital Anahtar Ekle / Yönet" />
 
     <Button
         android:id="@+id/btn_settings_sync_key"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:text="⌚ Saate Aktar" />
+        android:text="Saate Aktar" />
 
     <TextView
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_marginTop="12dp"
-        android:text="Görünüm"
+        android:text="OLED Glass · Gerçek siyah"
         android:textColor="@color/accent_togg"
         android:textStyle="bold" />
 
     <RadioGroup
         android:id="@+id/rg_app_theme"
+        android:visibility="gone"
         android:layout_width="match_parent"
         android:layout_height="wrap_content">
-        <RadioButton android:id="@+id/rb_theme_system" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="📱 Sistem Varsayılanı" />
-        <RadioButton android:id="@+id/rb_theme_dark" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="🌙 Karanlık Mod" />
-        <RadioButton android:id="@+id/rb_theme_light" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="☀️ Aydınlık Mod" />
+        <RadioButton android:id="@+id/rb_theme_system" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Sistem Varsayılanı" />
+        <RadioButton android:id="@+id/rb_theme_dark" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Karanlık Mod" />
+        <RadioButton android:id="@+id/rb_theme_light" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Aydınlık Mod" />
     </RadioGroup>
 
     <Button
@@ -132,7 +133,7 @@
         android:layout_marginTop="8dp"
         android:layout_marginBottom="12dp"
         android:background="@drawable/btn_outline"
-        android:text="🗂️ Kart Sıralaması ve Görünümü"
+        android:text="Kart Sıralaması ve Görünümü"
         android:textColor="@color/accent_togg"
         android:textSize="13sp"
         android:textStyle="bold" />

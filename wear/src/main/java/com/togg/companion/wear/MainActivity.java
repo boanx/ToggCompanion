@@ -80,7 +80,6 @@ public class MainActivity extends Activity implements WatchDataStore.OnDataChang
 
         bindViews();
         setupListeners();
-        initLocation();
 
         // Load cached telemetry
         currentTelemetry = WatchDataStore.getTelemetry(this);
@@ -150,6 +149,7 @@ public class MainActivity extends Activity implements WatchDataStore.OnDataChang
     @Override
     protected void onResume() {
         super.onResume();
+        initLocation();
         currentTelemetry = WatchDataStore.getTelemetry(this);
         renderUi(currentTelemetry);
         // Automatically request latest telemetry on watch resume
@@ -158,8 +158,20 @@ public class MainActivity extends Activity implements WatchDataStore.OnDataChang
 
     @Override
     protected void onStop() {
+        if (locationManager != null) {
+            try { locationManager.removeUpdates(locationListener); } catch (SecurityException ignored) { }
+        }
         super.onStop();
         WatchDataStore.unregisterListener(this);
+    }
+
+    @Override
+    public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions, @NonNull int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        if (requestCode == 101 && grantResults.length > 0
+                && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+            initLocation();
+        }
     }
 
     @Override
@@ -174,18 +186,35 @@ public class MainActivity extends Activity implements WatchDataStore.OnDataChang
         if (t == null) return;
 
         // Header
-        tvLastSync.setText("● Senkronize • " + t.getRelativeTimeString());
+        String syncTime = t.getRelativeTimeString();
+        boolean hasTelemetry = WatchDataStore.hasTelemetry(this);
+        tvLastSync.setText(hasTelemetry ? "● Senkronize • " + syncTime : syncTime);
+        if (!hasTelemetry) {
+            tvBatterySoc.setText("--%");
+            tvRangeKm.setText("Menzil verisi yok");
+            tvChargingStatus.setText("Telefondan veri bekleniyor");
+            tv12vSoc.setText("--%");
+            tv12vStatus.setText("Veri yok");
+            tv12vStatus.setTextColor(getColor(R.color.text_muted));
+            tvTiresBadge.setText("--");
+            tvTiresSummary.setText("Lastik verisi yok");
+            tvTiresSummary.setTextColor(getColor(R.color.text_muted));
+            tvParkAddress.setText("Araç konumu alınmadı");
+            tvDistanceBearing.setText("Konum verisi yok");
+            renderDigitalKeyUi();
+            return;
+        }
 
         // 1. High-Voltage Battery & Range
         tvBatterySoc.setText("%" + t.soc);
         tvRangeKm.setText(t.rangeKm + " km menzil");
         if (t.isCharging) {
             tvBatterySoc.setTextColor(getColor(R.color.status_green));
-            tvChargingStatus.setText(String.format(Locale.getDefault(), "⚡ Şarj Oluyor (%.1f kW)", t.chargePowerKw));
+            tvChargingStatus.setText(String.format(Locale.getDefault(), "ϟ Şarj Oluyor (%.1f kW)", t.chargePowerKw));
             tvChargingStatus.setTextColor(getColor(R.color.status_green));
         } else {
             tvBatterySoc.setTextColor(getColor(R.color.white));
-            tvChargingStatus.setText("Sürüşe Hazır");
+            tvChargingStatus.setText("Şarj olmuyor");
             tvChargingStatus.setTextColor(getColor(R.color.text_secondary));
         }
 
@@ -193,7 +222,7 @@ public class MainActivity extends Activity implements WatchDataStore.OnDataChang
         tv12vSoc.setText("%" + t.batt12vSoc);
         if (t.batt12vAlert) {
             tv12vSoc.setTextColor(getColor(R.color.status_red));
-            tv12vStatus.setText("⚠️ 12V Akü Düşük! (%60 altı)");
+            tv12vStatus.setText("⚠︎ 12V Akü Düşük! (%60 altı)");
             tv12vStatus.setTextColor(getColor(R.color.status_red));
         } else {
             tv12vSoc.setTextColor(getColor(R.color.status_green));
@@ -210,7 +239,7 @@ public class MainActivity extends Activity implements WatchDataStore.OnDataChang
         } else {
             tvTiresBadge.setText("UYARI");
             tvTiresBadge.setTextColor(getColor(R.color.status_red));
-            tvTiresSummary.setText("⚠️ " + t.tiresSummary);
+            tvTiresSummary.setText("⚠︎ " + t.tiresSummary);
             tvTiresSummary.setTextColor(getColor(R.color.status_red));
         }
 
@@ -219,7 +248,7 @@ public class MainActivity extends Activity implements WatchDataStore.OnDataChang
         if (lastWatchLocation != null) {
             tvDistanceBearing.setText(t.calculateDistanceString(lastWatchLocation));
         } else {
-            tvDistanceBearing.setText("📍 Konum hazır (Haritada Aç)");
+            tvDistanceBearing.setText("Konum hazır (Haritada Aç)");
         }
 
         // 5. Dijital Anahtar Durumu
@@ -234,7 +263,9 @@ public class MainActivity extends Activity implements WatchDataStore.OnDataChang
                 tvWatchKeyBadge.setTextColor(getColor(R.color.status_green));
             }
             if (tvWatchKeyDetails != null) {
-                String details = key.plate + " • " + key.getRemainingDays();
+                String vehicle = !key.plate.trim().isEmpty() ? key.plate
+                        : !key.vin.trim().isEmpty() ? key.vin : "Araç bilgisi bilinmiyor";
+                String details = vehicle + " • " + key.getRemainingDays();
                 if (key.seId != null && !key.seId.isEmpty()) {
                     details += "\nSE-ID: " + key.seId;
                 }
@@ -285,10 +316,11 @@ public class MainActivity extends Activity implements WatchDataStore.OnDataChang
             if (nodes != null && !nodes.isEmpty()) {
                 byte[] payload = cmd.getBytes(StandardCharsets.UTF_8);
                 for (Node node : nodes) {
-                    Wearable.getMessageClient(this).sendMessage(node.getId(), "/execute_key_action", payload);
+                    Wearable.getMessageClient(this).sendMessage(node.getId(), "/execute_key_action", payload)
+                            .addOnFailureListener(error -> runOnUiThread(() ->
+                                    Toast.makeText(this, "Komut telefona iletilemedi: " + error.getMessage(), Toast.LENGTH_LONG).show()));
                 }
-                String actionName = "lock".equalsIgnoreCase(cmd) ? "🔒 Kilitleme" : "🔓 Açma";
-                Toast.makeText(this, actionName + " telefona iletildi", Toast.LENGTH_SHORT).show();
+                Toast.makeText(this, "Araç komutu gönderiliyor; sonuç bekleniyor...", Toast.LENGTH_SHORT).show();
             } else {
                 Toast.makeText(this, "Telefon bağlı değil (Bluetooth)", Toast.LENGTH_SHORT).show();
             }
@@ -298,7 +330,7 @@ public class MainActivity extends Activity implements WatchDataStore.OnDataChang
     }
 
     private void requestSyncFromPhone() {
-        btnSyncRequest.setText("🔄 İsteniyor...");
+        btnSyncRequest.setText("İsteniyor...");
         btnSyncRequest.setEnabled(false);
 
         Wearable.getNodeClient(this).getConnectedNodes().addOnSuccessListener(nodes -> {
@@ -313,33 +345,31 @@ public class MainActivity extends Activity implements WatchDataStore.OnDataChang
                 Toast.makeText(this, "Telefon bağlı değil (Bluetooth)", Toast.LENGTH_SHORT).show();
             }
             btnSyncRequest.postDelayed(() -> {
-                btnSyncRequest.setText("🔄 Telefondan Güncelle");
+                btnSyncRequest.setText("Telefondan Güncelle");
                 btnSyncRequest.setEnabled(true);
             }, 1500);
         }).addOnFailureListener(e -> {
-            btnSyncRequest.setText("🔄 Telefondan Güncelle");
+            btnSyncRequest.setText("Telefondan Güncelle");
             btnSyncRequest.setEnabled(true);
         });
     }
 
     private void openWalkingNavigation() {
-        if (currentTelemetry == null || (currentTelemetry.latitude == 0.0 && currentTelemetry.longitude == 0.0)) {
+        if (currentTelemetry == null || !hasUsableCoordinates(currentTelemetry.latitude, currentTelemetry.longitude)) {
             Toast.makeText(this, "Araç konumu henüz alınamadı", Toast.LENGTH_SHORT).show();
             return;
         }
 
-        String geoUri = String.format(Locale.US, "geo:%f,%f?q=%f,%f(Togg+T10F)",
-                currentTelemetry.latitude, currentTelemetry.longitude,
+        String walkNavUri = String.format(Locale.US, "google.navigation:q=%f,%f&mode=w",
                 currentTelemetry.latitude, currentTelemetry.longitude);
-
-        Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse(geoUri));
+        Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse(walkNavUri));
         try {
             startActivity(intent);
         } catch (Exception e) {
-            // Fallback to Google walking navigation intent
-            String walkNavUri = String.format(Locale.US, "google.navigation:q=%f,%f&mode=w",
+            String geoUri = String.format(Locale.US, "geo:%f,%f?q=%f,%f(Togg+T10F)",
+                    currentTelemetry.latitude, currentTelemetry.longitude,
                     currentTelemetry.latitude, currentTelemetry.longitude);
-            Intent navIntent = new Intent(Intent.ACTION_VIEW, Uri.parse(walkNavUri));
+            Intent navIntent = new Intent(Intent.ACTION_VIEW, Uri.parse(geoUri));
             try {
                 startActivity(navIntent);
             } catch (Exception e2) {
@@ -353,14 +383,23 @@ public class MainActivity extends Activity implements WatchDataStore.OnDataChang
             try {
                 locationManager = (LocationManager) getSystemService(Context.LOCATION_SERVICE);
                 if (locationManager != null) {
-                    Location lastKnown = locationManager.getLastKnownLocation(LocationManager.GPS_PROVIDER);
-                    if (lastKnown == null) {
+                    String provider = locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER)
+                            ? LocationManager.GPS_PROVIDER
+                            : locationManager.isProviderEnabled(LocationManager.NETWORK_PROVIDER)
+                                ? LocationManager.NETWORK_PROVIDER : null;
+                    if (provider == null) return;
+                    Location lastKnown = locationManager.getLastKnownLocation(provider);
+                    if (lastKnown == null && !LocationManager.NETWORK_PROVIDER.equals(provider)
+                            && locationManager.isProviderEnabled(LocationManager.NETWORK_PROVIDER)) {
                         lastKnown = locationManager.getLastKnownLocation(LocationManager.NETWORK_PROVIDER);
                     }
                     if (lastKnown != null) {
                         lastWatchLocation = lastKnown;
+                        if (currentTelemetry != null) {
+                            tvDistanceBearing.setText(currentTelemetry.calculateDistanceString(lastWatchLocation));
+                        }
                     }
-                    locationManager.requestLocationUpdates(LocationManager.GPS_PROVIDER, 10000, 10, locationListener);
+                    locationManager.requestLocationUpdates(provider, 10000, 10, locationListener);
                 }
             } catch (Exception e) {
                 Log.w(TAG, "Location error: " + e.getMessage());
@@ -379,6 +418,12 @@ public class MainActivity extends Activity implements WatchDataStore.OnDataChang
             }
         }
     };
+
+    private static boolean hasUsableCoordinates(double lat, double lon) {
+        return Double.isFinite(lat) && Double.isFinite(lon)
+                && lat >= -90.0 && lat <= 90.0 && lon >= -180.0 && lon <= 180.0
+                && !(lat == 0.0 && lon == 0.0);
+    }
 
     private void vibrate(long millis) {
         try {

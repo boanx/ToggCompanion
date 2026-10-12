@@ -62,7 +62,7 @@ public final class GezRouteBridge {
     public static GezPoint parseDirect(String text) {
         if (text == null) return null;
         String source = text.trim();
-        if (source.regionMatches(true, 0, "http://", 0, 7) || source.regionMatches(true, 0, "https://", 0, 8)) return null;
+        if (URL_PATTERN.matcher(source).find()) return null;
         if (source.regionMatches(true, 0, "google.navigation:", 0, 18)) {
             String query = source.substring(18);
             int q = query.indexOf("q=");
@@ -115,7 +115,8 @@ public final class GezRouteBridge {
     }
 
     public static GezPoint resolve(Context context, String input) throws IOException {
-        GezPoint direct = parseDirect(input);
+        // A list of coordinate lines is a route, not its first matching coordinate.
+        GezPoint direct = input != null && !input.contains("\n") && !input.contains("\r") ? parseDirect(input) : null;
         if (direct != null) return direct;
         if (input == null || input.trim().isEmpty()) throw new IOException("Bir adres veya harita bağlantısı girin.");
         String source = input.trim();
@@ -148,6 +149,12 @@ public final class GezRouteBridge {
                     name = decode(segment); break;
                 }
             }
+            List<GezPoint> dataStops = parseDataStops(url);
+            if (dataStops.size() > 1) {
+                List<GezPoint> resolvedStops = new ArrayList<>();
+                for (GezPoint stop : dataStops) resolvedStops.add(withResolvedName(context, stop));
+                return destinationWithStops(resolvedStops);
+            }
             String[] match = lastMatch(DATA_COORD, url);
             if (match == null) match = lastMatch(DATA_COORD_REVERSED, url);
             if (match == null) match = lastMatch(PREVIEW_COORD, url);
@@ -167,6 +174,7 @@ public final class GezRouteBridge {
                 String item = line.trim();
                 if (item.isEmpty()) continue;
                 GezPoint coordinate = parseDirect(item);
+                if (coordinate == null && COORDINATES.matcher(item).matches()) throw new IOException("Rotadaki koordinatlar geçersiz.");
                 stops.add(coordinate != null ? coordinate : forwardGeocode(context, item));
             }
             if (!stops.isEmpty()) return destinationWithStops(stops);
@@ -219,7 +227,9 @@ public final class GezRouteBridge {
     private static GezPoint withResolvedName(Context context, GezPoint p) throws IOException {
         if (p == null) throw new IOException("Bağlantıdaki koordinatlar geçersiz.");
         if (context == null || p.name != null && !p.name.trim().isEmpty() && !p.name.equals(p.lat + ", " + p.lon) || !Geocoder.isPresent()) return p;
-        List<Address> results = new Geocoder(context).getFromLocation(p.lat, p.lon, 1);
+        List<Address> results;
+        try { results = new Geocoder(context).getFromLocation(p.lat, p.lon, 1); }
+        catch (IOException unavailable) { return p; } // A label lookup is optional when coordinates are known.
         if (results == null || results.isEmpty()) return p;
         Address address = results.get(0);
         return new GezPoint(p.lat, p.lon, friendlyName(address, p.lat + ", " + p.lon));
@@ -246,13 +256,20 @@ public final class GezRouteBridge {
         for (String segment : segments) {
             if (segment.isEmpty() || segment.startsWith("data=") || segment.startsWith("am=")) continue;
             String decoded = decode(segment);
+            // @lat,lon,zoom is the map viewport, never a route stop.
+            if (decoded.startsWith("@") || decoded.startsWith("!")) continue;
             Matcher coords = COORDINATES.matcher(decoded);
-            if (coords.matches()) { GezPoint p = point(coords.group(1), coords.group(2), null); if (p != null) stops.add(p); }
+            if (coords.matches()) {
+                GezPoint p = point(coords.group(1), coords.group(2), null);
+                if (p == null) throw new IllegalArgumentException("Rotadaki koordinatlar geçersiz.");
+                stops.add(p);
+            }
             else if (!decoded.contains("=")) stops.add(new GezPoint(0, 0, decoded));
         }
         return stops;
     }
     private static GezPoint resolveNamedOrCoordinate(Context context, GezPoint stop) throws IOException {
+        if (stop == null) throw new IOException("Rotadaki koordinatlar geçersiz.");
         if (stop.lat == 0 && stop.lon == 0 && stop.name != null) return forwardGeocode(context, stop.name);
         return withResolvedName(context, stop);
     }
@@ -371,37 +388,23 @@ public final class GezRouteBridge {
         return false;
     }
 
+    /** Cloud-only transfer. Failure never launches Trumore or another app. */
     public static void dispatchToVehicleCloud(Context context, SecureTokenStorage storage, double lat, double lon, String name, CloudCallback callback) {
-        if (context == null || storage == null) { if (callback != null) callback.onError("Togg ID oturumu kullanılamıyor."); return; }
-        if (storage.isDemoMode() || !storage.hasValidToken()) {
-            finishWithTrumoreFallback(context, lat, lon, name, "Demo modunda Togg Cloud kullanılamıyor.", callback);
-            return;
-        }
-        new TvaApiClient(storage).sendDestinationToVehicle(lat, lon, name, new TvaApiClient.DestinationCallback() {
-            @Override public void onSuccess(String message) { if (callback != null) callback.onSuccess("CLOUD|" + message); }
-            @Override public void onError(String message) { finishWithTrumoreFallback(context, lat, lon, name, message, callback); }
-        });
+        dispatchToVehicleCloud(context, storage, new GezPoint(lat, lon, name), callback);
     }
 
     public static void dispatchToVehicleCloud(Context context, SecureTokenStorage storage, GezPoint point, CloudCallback callback) {
-        if (point == null) { if (callback != null) callback.onError("Rota hedefi bulunamadı."); return; }
-        GezPoint target = point.hasMultipleStops() ? point.stops.get(point.stops.size() - 1) : point;
-        if (context == null || storage == null) { if (callback != null) callback.onError("Togg ID oturumu kullanılamıyor."); return; }
-        if (storage.isDemoMode() || !storage.hasValidToken()) {
-            finishWithTrumoreFallback(context, target.lat, target.lon, target.name, "Demo modunda Togg Cloud kullanılamıyor.", callback);
+        if (callback == null) return;
+        if (point == null) { callback.onError("Rota hedefi bulunamadı."); return; }
+        if (storage == null) { callback.onError("Togg ID oturumu kullanılamıyor."); return; }
+        if (storage.isDemoMode() || !storage.hasValidToken() || storage.isDemoVin()) {
+            callback.onError("Gerçek araç VIN'ini ayarlayın ve Togg ID ile giriş yapın.");
             return;
         }
         new TvaApiClient(storage).sendRouteToVehicle(point, new TvaApiClient.DestinationCallback() {
-            @Override public void onSuccess(String message) { if (callback != null) callback.onSuccess("CLOUD|" + message); }
-            @Override public void onError(String message) { finishWithTrumoreFallback(context, target.lat, target.lon, target.name, message, callback); }
+            @Override public void onSuccess(String message) { callback.onSuccess(message); }
+            @Override public void onError(String message) { callback.onError(message); }
         });
-    }
-
-    private static void finishWithTrumoreFallback(Context context, double lat, double lon, String name, String cloudError, CloudCallback callback) {
-        boolean opened = openCarDisplayDirections(context, lat, lon, name);
-        if (callback == null) return;
-        if (opened) callback.onSuccess("TRUMORE|Cloud aktarımı kullanılamadı; Trumore araç ekranı açıldı. " + cloudError);
-        else callback.onError(cloudError + " Trumore araç ekranı da açılamadı.");
     }
 
     public static String buildUniversalGeoUri(double lat, double lon, String name) {

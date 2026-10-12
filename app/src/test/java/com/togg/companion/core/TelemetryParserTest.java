@@ -21,6 +21,28 @@ public class TelemetryParserTest {
         assertTrue(TelemetryParser.parse("{\"data\":{\"telemetry\":{\"isReadyToDrive\":true}}}", "VIN", "PLATE").isReadyToDrive);
     }
 
+    @Test public void negativeAndAccessoryStatesAreNotReady() {
+        for (String status : new String[]{"NOT_READY", "INACTIVE", "IGNITION_OFF", "ACCESSORY"}) {
+            String json = "{\"data\":{\"telemetry\":{\"vehicleStatus\":{\"vehicleStatusValueEnum\":\""
+                    + status + "\"},\"powerMode\":\"" + status + "\"}}}";
+            assertFalse(status, TelemetryParser.parse(json, "VIN", "PLATE").isReadyToDrive);
+        }
+        assertFalse(TelemetryParser.parse("{\"data\":{\"telemetry\":{\"powerMode\":\"ON\"}}}", "VIN", "PLATE").isReadyToDrive);
+    }
+
+    @Test public void explicitNotReadyOverridesOtherSignals() {
+        assertFalse(TelemetryParser.parse("{\"data\":{\"telemetry\":{\"isReadyToDrive\":false,\"powerMode\":\"READY\",\"vehicleSpeed\":1}}}", "VIN", "PLATE").isReadyToDrive);
+    }
+
+    @Test public void missingCoordinateDoesNotCreateAUsableLocation() {
+        VehicleTelemetry missingLat = TelemetryParser.parse("{\"data\":{\"telemetry\":{\"location\":{\"longitude\":32.8}}}}", "VIN", "PLATE");
+        assertEquals(0.0, missingLat.latitude, 0.0);
+        assertEquals(0.0, missingLat.longitude, 0.0);
+        VehicleTelemetry south = TelemetryParser.parse("{\"data\":{\"telemetry\":{\"location\":{\"latitude\":-33.8,\"longitude\":151.2}}}}", "VIN", "PLATE");
+        assertEquals(-33.8, south.latitude, 0.0);
+        assertEquals(151.2, south.longitude, 0.0);
+    }
+
     @Test
     public void testParseTimestampIsoVariantsAndEpochs() {
         long expected = java.time.Instant.parse("2026-10-01T10:15:30Z").toEpochMilli();
@@ -197,10 +219,9 @@ public class TelemetryParserTest {
     }
 
     @Test
-    public void testResilientFallbackOnCorruptJson() {
-        VehicleTelemetry t = TelemetryParser.parse("{invalid:json", "DEF-VIN", "DEF-PLATE");
-        assertNotNull(t);
-        assertEquals("DEF-VIN", t.vin);
-        assertEquals("DEF-PLATE", t.plate);
+    public void malformedTelemetryDoesNotBecomeDemoData() {
+        assertNull(TelemetryParser.parse("{invalid:json", "DEF-VIN", "DEF-PLATE"));
+        assertNull(TelemetryParser.parse("", "DEF-VIN", "DEF-PLATE"));
+        assertNull(TelemetryParser.parse(null, "DEF-VIN", "DEF-PLATE"));
     }
 }

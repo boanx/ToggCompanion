@@ -108,21 +108,21 @@ public class ToggActionActivity extends Activity {
         SecureTokenStorage storage = new SecureTokenStorage(this);
         TelemetryDatabaseHelper dbHelper = new TelemetryDatabaseHelper(this);
         VehicleTelemetry latest = dbHelper.getLatest();
-        DigitalKeyManager keyMgr = new DigitalKeyManager(this);
-        DigitalKey activeKey = keyMgr.getActiveKey();
-        String keyTag = (activeKey != null && activeKey.isValid()) ? " [🔑 " + activeKey.seId + "]" : "";
-
         VehicleBleManager.VehicleCommand bleCommand = null;
-        if ("lock".equals(cmd)) bleCommand = VehicleBleManager.VehicleCommand.LOCK;
-        else if ("unlock".equals(cmd)) bleCommand = VehicleBleManager.VehicleCommand.UNLOCK;
-        else if ("trunk".equals(cmd) || "trunk_toggle".equals(cmd)) bleCommand = VehicleBleManager.VehicleCommand.TRUNK;
+        if ("lock".equals(cmd)) {
+            bleCommand = VehicleBleManager.VehicleCommand.LOCK;
+        } else if ("unlock".equals(cmd)) {
+            bleCommand = VehicleBleManager.VehicleCommand.UNLOCK;
+        } else if ("trunk_open".equals(cmd)) {
+            bleCommand = VehicleBleManager.VehicleCommand.TRUNK_OPEN;
+        } else if ("trunk_close".equals(cmd)) {
+            bleCommand = VehicleBleManager.VehicleCommand.TRUNK_CLOSE;
+        } else if ("trunk".equals(cmd) || "trunk_toggle".equals(cmd)) {
+            bleCommand = VehicleBleManager.VehicleCommand.TRUNK;
+        }
         else if ("emotor".equals(cmd) || "emotor_start".equals(cmd) || "emotor_stop".equals(cmd) || "start_drive".equals(cmd)) {
             boolean ready = "emotor_start".equals(cmd) || "start_drive".equals(cmd)
                     || ("emotor".equals(cmd) && latest != null && !latest.isReadyToDrive);
-            if (ready && activeKey != null && !activeKey.canStartDrive) {
-                Toast.makeText(this, "Bu dijital anahtarın aracı çalıştırma yetkisi yok.", Toast.LENGTH_LONG).show();
-                return;
-            }
             bleCommand = ready ? VehicleBleManager.VehicleCommand.EMOTOR_START : VehicleBleManager.VehicleCommand.EMOTOR_STOP;
         }
         if (bleCommand != null) {
@@ -140,94 +140,36 @@ public class ToggActionActivity extends Activity {
 
         switch (cmd) {
             case "emotor": case "emotor_start": case "emotor_stop": case "start_drive":
-                boolean ready = "emotor_start".equals(cmd) || "start_drive".equals(cmd)
-                        || ("emotor".equals(cmd) && latest != null && !latest.isReadyToDrive);
-                if (ready && activeKey != null && !activeKey.canStartDrive) {
-                    Toast.makeText(this, "Bu dijital anahtarın aracı çalıştırma yetkisi yok.", Toast.LENGTH_LONG).show();
-                    break;
-                }
-                if (latest != null) {
-                    latest = latest.withReadyToDrive(ready);
-                    dbHelper.insert(latest);
-                    WearSyncManager.syncTelemetry(this, latest);
-                    Toast.makeText(this, ready ? "Togg T10F: e-Motor Aktif! Araç Sürüşe Hazır (READY) ⚡" : "Togg T10F: e-Motor Kapatıldı", Toast.LENGTH_SHORT).show();
-                }
+                Toast.makeText(this, "e-Motor komutu BLE bağlantısı üzerinden gönderilemedi.", Toast.LENGTH_LONG).show();
                 break;
-            case "lock":
-                Toast.makeText(this, "Togg T10F: Kapılar Kilitlendi 🔒" + keyTag, Toast.LENGTH_SHORT).show();
-                if (latest != null) {
-                    latest = latest.withLock(true);
-                    dbHelper.insert(latest);
-                    WearSyncManager.syncTelemetry(this, latest);
-                }
-                break;
-
-            case "unlock":
-                Toast.makeText(this, "Togg T10F: Kapı Kilitleri Açıldı 🔓" + keyTag, Toast.LENGTH_SHORT).show();
-                if (latest != null) {
-                    latest = latest.withLock(false);
-                    dbHelper.insert(latest);
-                    WearSyncManager.syncTelemetry(this, latest);
-                }
-                break;
-
             case "climate_start":
-                Toast.makeText(this, "Togg T10F: Ön İklimlendirme Başlatıldı (22°C) ❄️" + keyTag, Toast.LENGTH_SHORT).show();
-                if (latest != null) {
-                    latest = latest.withClimate(22.0, true, false);
-                    dbHelper.insert(latest);
-                    WearSyncManager.syncTelemetry(this, latest);
-                }
-                break;
-
             case "climate_stop":
-                Toast.makeText(this, "Togg T10F: İklimlendirme Kapatıldı" + keyTag, Toast.LENGTH_SHORT).show();
-                if (latest != null) {
-                    latest = latest.withClimate(latest.targetHvacCelsius, false, false);
-                    dbHelper.insert(latest);
-                    WearSyncManager.syncTelemetry(this, latest);
-                }
-                break;
-
             case "defrost":
-                Toast.makeText(this, "Togg T10F: Ön Cam Rezistansı & Buğu Çözme Açıldı ♨️" + keyTag, Toast.LENGTH_SHORT).show();
-                if (latest != null) {
-                    latest = latest.withClimate(latest.targetHvacCelsius, true, true);
-                    dbHelper.insert(latest);
-                    WearSyncManager.syncTelemetry(this, latest);
-                }
+                Toast.makeText(this, "İklimlendirme ve buğu çözme araçta henüz etkin değil.", Toast.LENGTH_LONG).show();
                 break;
-
-            case "trunk":
-                boolean nowOpen = latest == null || !latest.trunkOpen;
-                Toast.makeText(this, nowOpen ? ("Togg T10F: Bagaj Kapağı Açıldı 📦" + keyTag) : ("Togg T10F: Bagaj Kapağı Kapatıldı" + keyTag), Toast.LENGTH_SHORT).show();
-                if (latest != null) {
-                    latest = latest.withTrunk(nowOpen);
-                    dbHelper.insert(latest);
-                    WearSyncManager.syncTelemetry(this, latest);
-                }
-                break;
-
             case "drive_mode_eco":
             case "drive_mode_comfort":
             case "drive_mode_sport":
             case "drive_mode_next":
-                if (latest != null) {
-                    String mode;
-                    if ("drive_mode_eco".equals(cmd)) mode = "Eco";
-                    else if ("drive_mode_sport".equals(cmd)) mode = "Sport";
-                    else if ("drive_mode_next".equals(cmd)) mode = "Eco".equalsIgnoreCase(latest.driveMode) ? "Comfort" : ("Comfort".equalsIgnoreCase(latest.driveMode) ? "Sport" : "Eco");
-                    else mode = "Comfort";
-                    latest = latest.withDriveMode(mode);
-                    dbHelper.insert(latest);
-                    WearSyncManager.syncTelemetry(this, latest);
-                    Toast.makeText(this, "Togg T10F: Sürüş Modu -> " + ("Sport".equals(mode) ? "Spor ⚡" : ("Comfort".equals(mode) ? "Konfor" : "Eco")), Toast.LENGTH_SHORT).show();
-                }
+                Toast.makeText(this, "Sürüş modu kontrolü araçta henüz etkin değil.", Toast.LENGTH_LONG).show();
                 break;
 
             case "locate":
-                double lat = latest != null ? latest.latitude : 39.925054;
-                double lon = latest != null ? latest.longitude : 32.834755;
+                double lat = latest != null ? latest.latitude : 0.0;
+                double lon = latest != null ? latest.longitude : 0.0;
+                boolean oldDemoLocation = latest != null && lat == 39.925054 && lon == 32.834755
+                        && (latest.parkAddress == null || latest.parkAddress.toLowerCase(java.util.Locale.ROOT).contains("belirleniyor"));
+                if (oldDemoLocation) { lat = 0.0; lon = 0.0; }
+                if ((!Double.isFinite(lat) || !Double.isFinite(lon) || (lat == 0.0 && lon == 0.0))
+                        && storage.hasSavedLocation()
+                        && !(storage.getLastLat() == 39.925054 && storage.getLastLon() == 32.834755)) {
+                    lat = storage.getLastLat(); lon = storage.getLastLon();
+                }
+                if (!Double.isFinite(lat) || !Double.isFinite(lon) || lat < -90 || lat > 90
+                        || lon < -180 || lon > 180 || (lat == 0.0 && lon == 0.0)) {
+                    Toast.makeText(this, "Aracın kayıtlı konumu yok; navigasyon başlatılamadı.", Toast.LENGTH_LONG).show();
+                    break;
+                }
                 Uri mapUri = Uri.parse("geo:" + lat + "," + lon + "?q=" + lat + "," + lon + "(Togg T10F Park Yeri)");
                 Intent mapIntent = new Intent(Intent.ACTION_VIEW, mapUri);
                 mapIntent.setPackage("com.google.android.apps.maps");

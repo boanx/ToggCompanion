@@ -78,19 +78,23 @@ public final class WatchDataStore {
         }
 
         return new WatchTelemetry(
-                prefs.getInt(KEY_SOC, 78),
-                prefs.getInt(KEY_RANGE, 385),
+                prefs.getInt(KEY_SOC, 0),
+                prefs.getInt(KEY_RANGE, 0),
                 prefs.getBoolean(KEY_CHARGING, false),
                 prefs.getFloat(KEY_CHARGE_POWER, 0.0f),
-                prefs.getInt(KEY_BATT_12V, 88),
+                prefs.getInt(KEY_BATT_12V, 0),
                 prefs.getBoolean(KEY_BATT_12V_ALERT, false),
                 prefs.getBoolean(KEY_TIRES_NORMAL, true),
-                prefs.getString(KEY_TIRES_SUMMARY, "Normal (36 PSI)"),
-                prefs.getFloat(KEY_LAT, 40.9901f),
-                prefs.getFloat(KEY_LON, 29.0292f),
-                prefs.getString(KEY_ADDRESS, "Kadıköy, İstanbul"),
-                prefs.getLong(KEY_TIMESTAMP, System.currentTimeMillis())
+                prefs.getString(KEY_TIRES_SUMMARY, "Henüz senkronize edilmedi"),
+                prefs.getFloat(KEY_LAT, 0.0f),
+                prefs.getFloat(KEY_LON, 0.0f),
+                prefs.getString(KEY_ADDRESS, "Araç verisi telefondan bekleniyor"),
+                prefs.getLong(KEY_TIMESTAMP, 0)
         );
+    }
+
+    public static boolean hasTelemetry(Context context) {
+        return context != null && context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE).contains(KEY_SOC);
     }
 
     // ==========================================
@@ -123,8 +127,8 @@ public final class WatchDataStore {
                     editor.putBoolean(KEY_DK_ACTIVE, legacy.getBoolean(KEY_DK_ACTIVE, false))
                             .putString(KEY_DK_ID, legacy.getString(KEY_DK_ID, ""))
                             .putString(KEY_DK_SE_ID, legacy.getString(KEY_DK_SE_ID, ""))
-                            .putString(KEY_DK_VIN, legacy.getString(KEY_DK_VIN, "T10F"))
-                            .putString(KEY_DK_PLATE, legacy.getString(KEY_DK_PLATE, "34 TOGG 10"))
+                            .putString(KEY_DK_VIN, legacy.getString(KEY_DK_VIN, ""))
+                            .putString(KEY_DK_PLATE, legacy.getString(KEY_DK_PLATE, ""))
                             .putString(KEY_DK_HOLDER, legacy.getString(KEY_DK_HOLDER, ""))
                             .putLong(KEY_DK_VALID_UNTIL, legacy.getLong(KEY_DK_VALID_UNTIL, 0))
                             .putString(KEY_DK_TOKEN, legacy.getString(KEY_DK_TOKEN, ""))
@@ -163,8 +167,8 @@ public final class WatchDataStore {
             this.isActive = isActive;
             this.keyId = keyId != null ? keyId : "";
             this.seId = seId != null ? seId : "";
-            this.vin = vin != null ? vin : "T10F";
-            this.plate = plate != null ? plate : "34 TOGG 10";
+            this.vin = vin != null ? vin : "";
+            this.plate = plate != null ? plate : "";
             this.holder = holder != null ? holder : "Paylaşılan Kullanıcı";
             this.validUntil = validUntil;
             this.token = token != null ? token : "";
@@ -222,8 +226,8 @@ public final class WatchDataStore {
                 prefs.getBoolean(KEY_DK_ACTIVE, false),
                 prefs.getString(KEY_DK_ID, ""),
                 prefs.getString(KEY_DK_SE_ID, ""),
-                prefs.getString(KEY_DK_VIN, "T10F"),
-                prefs.getString(KEY_DK_PLATE, "34 TOGG 10"),
+                prefs.getString(KEY_DK_VIN, ""),
+                prefs.getString(KEY_DK_PLATE, ""),
                 prefs.getString(KEY_DK_HOLDER, "Paylaşılan Kullanıcı"),
                 prefs.getLong(KEY_DK_VALID_UNTIL, 0),
                 prefs.getString(KEY_DK_TOKEN, ""),

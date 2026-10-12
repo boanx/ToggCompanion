@@ -1783,10 +1783,11 @@ public final class MainActivity extends Activity {
         card.addView(title);
 
         TextView status = new TextView(this);
-        String abrpStatus = storage.isAbrpEnabled() ? " 7 dk telemetri" : "⚪ Telemetri kapalı";
+        String abrpStatus = storage.isAbrpEnabled() ? " 4 dk telemetri" : "⚪ Telemetri kapalı";
         if (storage.isAbrpRouteSyncEnabled()) {
-            abrpStatus += " • 15 dk rota aktarımı açık";
-            if (!storage.getAbrpActiveStopName().isEmpty()) abrpStatus += "\nSonraki durak: " + storage.getAbrpActiveStopName();
+            abrpStatus += " • ~4 dk otomatik rota kontrolü";
+            if (!storage.getAbrpActiveStopName().isEmpty()) abrpStatus += "\nABRP rotası: " + storage.getAbrpActiveStopName();
+            abrpStatus += "\n" + storage.getAbrpRouteStatus();
         } else abrpStatus += " • Rota aktarımı kapalı";
         status.setText(abrpStatus);
         status.setTextColor(getColor(R.color.text_secondary));
@@ -2826,14 +2827,38 @@ public final class MainActivity extends Activity {
         layout.setPadding(dpToPx(20), dpToPx(8), dpToPx(20), dpToPx(4));
 
         CheckBox enabled = new CheckBox(this);
-        enabled.setText("7 dakikada bir ABRP'ye gönder");
+        enabled.setText("4 dakikada bir ABRP'ye gönder");
         enabled.setChecked(storage.isAbrpEnabled());
         layout.addView(enabled);
 
         CheckBox routeSync = new CheckBox(this);
-        routeSync.setText("15 dakikada bir ABRP rotasını araca aktar");
+        routeSync.setText("ABRP rota değişikliğini araca aktar (~4 dk kontrol)");
         routeSync.setChecked(storage.isAbrpRouteSyncEnabled());
         layout.addView(routeSync);
+        TextView routeStatus = new TextView(this);
+        routeStatus.setText(storage.getAbrpRouteStatus());
+        routeStatus.setTextColor(getColor(R.color.text_secondary));
+        routeStatus.setTextSize(12);
+        layout.addView(routeStatus);
+        Button checkRoute = new Button(this);
+        checkRoute.setText("Rotayı şimdi kontrol et");
+        checkRoute.setOnClickListener(v -> {
+            if (!storage.isAbrpRouteSyncEnabled() || storage.getAbrpToken().isEmpty()) {
+                Toast.makeText(this, "Önce otomatik rota aktarımını açıp token ile kaydedin.", Toast.LENGTH_LONG).show(); return;
+            }
+            AbrpJobService.requestRouteCheck(this);
+            routeStatus.setText("Kontrol istendi. Sonuç ABRP kartında ve bildirimde gösterilecek.");
+        });
+        layout.addView(checkRoute);
+        Button resetRoute = new Button(this);
+        resetRoute.setText("Rota gönderim kaydını sıfırla");
+        resetRoute.setOnClickListener(v -> new AlertDialog.Builder(this)
+                .setTitle("Rota kaydını sıfırla")
+                .setMessage("Araç ekranındaki hedefi kontrol edin. Kaydı sıfırlamak, aynı ABRP rotasının sonraki kontrolde yeniden gönderilmesine izin verir.")
+                .setNegativeButton("Vazgeç", null).setPositiveButton("Sıfırla", (d, which) -> {
+                    storage.resetAbrpRouteTracking(); routeStatus.setText(storage.getAbrpRouteStatus());
+                }).show());
+        layout.addView(resetRoute);
 
         EditText token = new EditText(this);
         token.setHint("ABRP Generic Token");
@@ -2863,9 +2888,11 @@ public final class MainActivity extends Activity {
         open.setOnClickListener(v -> openAbrp());
         layout.addView(open);
 
+        ScrollView abrpScroll = new ScrollView(this);
+        abrpScroll.addView(layout);
         AlertDialog.Builder builder = new AlertDialog.Builder(this)
-                .setTitle("ABRP Canlı Telemetri")
-                .setView(layout)
+                .setTitle("ABRP Telemetri ve Otomatik Rota")
+                .setView(abrpScroll)
                 .setPositiveButton(getString(R.string.btn_save), null)
                 .setNegativeButton(getString(R.string.btn_cancel), null);
         AlertDialog dialog = builder.create();
@@ -2901,7 +2928,7 @@ public final class MainActivity extends Activity {
         if (scheduler == null) return;
         if (enabled) AbrpJobService.scheduleNext(this);
         else scheduler.cancel(AbrpJobService.JOB_ID);
-        AbrpJobService.scheduleNextRouteCheck(this);
+        AbrpJobService.requestRouteCheck(this);
     }
 
     private void requestAbrpNotificationPermission(boolean routeEnabled) {

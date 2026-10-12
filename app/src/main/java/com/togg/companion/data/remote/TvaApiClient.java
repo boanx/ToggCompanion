@@ -26,7 +26,11 @@ import java.io.OutputStream;
  *   2. GET /info/api/v2/FriendVehicleInfo?vin=XXX (for shared/family drivers)
  */
 public final class TvaApiClient {
-    public interface DestinationCallback { void onSuccess(String message); void onError(String message); }
+    public interface DestinationCallback {
+        void onSuccess(String message);
+        void onError(String message);
+        default void onUncertain(String message) { onError(message); }
+    }
     // Trumore prod NAVIGATION_API_URL. SUPERAPP_URL is not the navigation API.
     public static final String PLANNED_JOURNEYS_ENDPOINT = "https://navigation-api.togg.cloud/j/api/PlannedJourneys";
 
@@ -66,6 +70,11 @@ public final class TvaApiClient {
             @Override public void onError(String message) {
                 if (completed.compareAndSet(false, true)) {
                     DESTINATION_IN_FLIGHT.set(false); callback.onError(message);
+                }
+            }
+            @Override public void onUncertain(String message) {
+                if (completed.compareAndSet(false, true)) {
+                    DESTINATION_IN_FLIGHT.set(false); callback.onUncertain(message);
                 }
             }
         };
@@ -141,12 +150,12 @@ public final class TvaApiClient {
                 callback.onError("Rota gönderimi başarısız (HTTP " + code + "). Sunucu rota API'si yerine ana sayfaya (/home) yönlendirdi. Rota aktarımı tamamlanmadı.");
             } else callback.onError(destinationHttpError(code, permissionDenied));
         } catch (java.net.SocketTimeoutException error) {
-            callback.onError("Gönderim yanıtı zamanında alınamadı. Hedef ulaşmış olabilir; yeniden göndermeden önce araç ekranını kontrol edin.");
+            callback.onUncertain("Gönderim yanıtı zamanında alınamadı. Hedef ulaşmış olabilir; yeniden göndermeden önce araç ekranını kontrol edin.");
         } catch (IllegalArgumentException error) {
             callback.onError("Rota koordinatları geçersiz. Hedefi yeniden önizleyin.");
         } catch (Exception error) {
             // Do not expose raw server bodies, credentials, account IDs or exception URLs.
-            callback.onError("Gönderim sonucu alınamadı. İnternet bağlantısını ve araç ekranını kontrol edin; otomatik tekrar gönderim yapılmadı.");
+            callback.onUncertain("Gönderim sonucu alınamadı. İnternet bağlantısını ve araç ekranını kontrol edin; otomatik tekrar gönderim yapılmadı.");
         } finally { if (connection != null) connection.disconnect(); }
     }
 
@@ -201,11 +210,12 @@ public final class TvaApiClient {
         GezRouteBridge.GezPoint arrival = route;
         GezRouteBridge.GezPoint start = currentOrigin;
         if (route.hasMultipleStops()) {
-            start = route.stops.get(0);
+            if (route.stopsIncludeOrigin) start = route.stops.get(0);
             arrival = route.stops.get(route.stops.size() - 1);
-            if (route.stops.size() > 2) {
+            int firstWaypoint = route.stopsIncludeOrigin ? 1 : 0;
+            if (route.stops.size() - firstWaypoint > 1) {
                 JSONArray waypoints = new JSONArray();
-                for (int i = 1; i < route.stops.size() - 1; i++) {
+                for (int i = firstWaypoint; i < route.stops.size() - 1; i++) {
                     waypoints.put(buildJourneyPoint(route.stops.get(i)));
                 }
                 payload.put("waypoints", waypoints);
@@ -213,7 +223,7 @@ public final class TvaApiClient {
         }
         if (start != null && validJourneyCoordinates(start.lat, start.lon)) {
             payload.put("startingPoint", buildJourneyPoint(start));
-        } else if (route.hasMultipleStops()) {
+        } else if (route.hasMultipleStops() && route.stopsIncludeOrigin) {
             throw new IllegalArgumentException("Başlangıç koordinatı geçersiz.");
         }
         payload.put("arrivalPoint", buildJourneyPoint(arrival));

@@ -88,6 +88,40 @@ public final class SecureTokenStorage {
     public String getAbrpActiveStopName() { return prefs.getString(KEY_ABRP_ACTIVE_STOP_NAME, ""); }
     public void setAbrpActiveStopName(String name) { prefs.edit().putString(KEY_ABRP_ACTIVE_STOP_NAME, name == null ? "" : name.trim()).apply(); }
 
+    public String getAbrpRouteStatus() { return prefs.getString("abrp_route_status", "Henüz kontrol edilmedi"); }
+    public void setAbrpRouteStatus(String status) { prefs.edit().putString("abrp_route_status", status).apply(); }
+    public String getAbrpAcceptedRoute(String scope) { return prefs.getString("abrp_route_accepted_" + scope, ""); }
+    public String getAbrpPendingRoute(String scope) { return prefs.getString("abrp_route_pending_" + scope, ""); }
+    public boolean markAbrpRouteAttempt(String scope, String fingerprint) {
+        return prefs.edit().putString("abrp_route_pending_" + scope, fingerprint).commit();
+    }
+    public void clearAbrpRouteAttempt(String scope) { prefs.edit().remove("abrp_route_pending_" + scope).commit(); }
+    public boolean recordAbrpRouteAccepted(String scope, String fingerprint, String summary) {
+        return prefs.edit().putString("abrp_route_accepted_" + scope, fingerprint)
+                .remove("abrp_route_pending_" + scope).putString(KEY_ABRP_ACTIVE_STOP_NAME, summary)
+                .putLong("abrp_route_last_dispatch", System.currentTimeMillis()).commit();
+    }
+    public void resetAbrpRouteTracking() {
+        String scope = getAbrpRouteScope();
+        prefs.edit().remove("abrp_route_accepted_" + scope).remove("abrp_route_pending_" + scope)
+                .putString("abrp_route_status", "Rota kaydı sıfırlandı").commit();
+    }
+    public String getAbrpRouteScope() {
+        String account = getAccessToken();
+        try {
+            String[] parts = account.split("\\.");
+            if (parts.length == 3) {
+                JSONObject claims = new JSONObject(new String(java.util.Base64.getUrlDecoder().decode(parts[1]), java.nio.charset.StandardCharsets.UTF_8));
+                if (!claims.optString("sub", "").isEmpty()) account = claims.optString("iss", "") + "|" + claims.getString("sub");
+            }
+            byte[] digest = java.security.MessageDigest.getInstance("SHA-256").digest(
+                    (getVin() + "|" + account + "|" + getAbrpToken()).getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            StringBuilder hash = new StringBuilder();
+            for (byte value : digest) hash.append(String.format(java.util.Locale.US, "%02x", value & 255));
+            return hash.toString();
+        } catch (Exception invalid) { throw new IllegalStateException("Rota oturum kimliği oluşturulamadı."); }
+    }
+
     private static void migratePlaintextPreferences(SharedPreferences legacy, SharedPreferences encrypted) {
         if (encrypted.getBoolean(KEY_ENCRYPTED_MIGRATION_COMPLETE, false)) {
             if (!legacy.getAll().isEmpty()) legacy.edit().clear().commit();

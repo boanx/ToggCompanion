@@ -13,13 +13,13 @@
         android:layout_height="wrap_content"
         android:gravity="center_vertical"
         android:orientation="horizontal">
-        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="◈" android:textColor="@color/accent_blue" android:textSize="20sp" android:textStyle="bold" />
+        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="◈" android:textColor="@color/widget_blue" android:textSize="20sp" android:textStyle="bold" />
         <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:orientation="vertical" android:paddingStart="8dp">
-            <TextView android:id="@+id/widget_title" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Togg T10F" android:textColor="#FFFFFF" android:textSize="15sp" android:textStyle="bold" />
-            <TextView android:id="@+id/widget_plate" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="--" android:textColor="#B5B5B5" android:textSize="10sp" />
+            <TextView android:id="@+id/widget_title" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Togg T10F" android:textColor="@color/widget_text" android:textSize="15sp" android:textStyle="bold" />
+            <TextView android:id="@+id/widget_plate" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="--" android:textColor="@color/widget_secondary" android:textSize="10sp" />
         </LinearLayout>
-        <TextView android:id="@+id/widget_updated" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Son Veri: --:--" android:textColor="#B5B5B5" android:textSize="10sp" android:padding="5dp" />
-        <TextView android:id="@+id/widget_refresh" android:layout_width="36dp" android:layout_height="36dp" android:gravity="center" android:text="↻" android:textColor="@color/accent_blue" android:textSize="22sp" />
+        <TextView android:id="@+id/widget_updated" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Son Veri: --:--" android:textColor="@color/widget_secondary" android:textSize="10sp" android:padding="5dp" />
+        <TextView android:id="@+id/widget_refresh" android:layout_width="44dp" android:layout_height="44dp" android:background="@drawable/bg_widget_refresh" android:contentDescription="Araç verisini yenile" android:gravity="center" android:text="↻" android:textColor="@color/widget_text" android:textSize="22sp" />
     </LinearLayout>
 
     <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="8dp" android:gravity="center_vertical" android:orientation="horizontal">
@@ -29,30 +29,30 @@
             <TextView android:id="@+id/widget_range" android:layout_width="0dp" android:layout_height="0dp" android:text="-- km" android:visibility="gone" />
             <TextView android:id="@+id/widget_charging" android:layout_width="0dp" android:layout_height="0dp" android:text="ŞARJ" android:visibility="gone" />
         </LinearLayout>
-        <LinearLayout android:id="@+id/widget_tires_cross" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginStart="14dp" android:layout_marginEnd="14dp" android:background="@drawable/badge_pill" android:gravity="center" android:orientation="vertical" android:paddingStart="8dp" android:paddingEnd="8dp" android:paddingTop="4dp" android:paddingBottom="4dp">
+        <LinearLayout android:id="@+id/widget_tires_cross" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginStart="14dp" android:layout_marginEnd="14dp" android:background="@drawable/bg_widget_tires" android:gravity="center" android:orientation="vertical" android:paddingStart="8dp" android:paddingEnd="8dp" android:paddingTop="4dp" android:paddingBottom="4dp">
             <LinearLayout android:layout_width="wrap_content" android:layout_height="wrap_content" android:gravity="center" android:orientation="horizontal">
-                <TextView android:id="@+id/widget_tire_fl" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="--" android:textColor="#FFFFFF" android:textSize="13sp" android:textStyle="bold" />
-                <FrameLayout android:layout_width="1.5dp" android:layout_height="18dp" android:layout_marginStart="6dp" android:layout_marginEnd="6dp" android:background="#33BEBEBE" />
-                <TextView android:id="@+id/widget_tire_fr" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="--" android:textColor="#FFFFFF" android:textSize="13sp" android:textStyle="bold" />
+                <TextView android:id="@+id/widget_tire_fl" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="--" android:textColor="@color/widget_text" android:textSize="13sp" android:textStyle="bold" />
+                <FrameLayout android:layout_width="1.5dp" android:layout_height="18dp" android:layout_marginStart="6dp" android:layout_marginEnd="6dp" android:background="@color/widget_divider" />
+                <TextView android:id="@+id/widget_tire_fr" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="--" android:textColor="@color/widget_text" android:textSize="13sp" android:textStyle="bold" />
             </LinearLayout>
-            <FrameLayout android:layout_width="match_parent" android:layout_height="1.5dp" android:layout_marginTop="2dp" android:layout_marginBottom="2dp" android:background="#33BEBEBE" />
+            <FrameLayout android:layout_width="match_parent" android:layout_height="1.5dp" android:layout_marginTop="2dp" android:layout_marginBottom="2dp" android:background="@color/widget_divider" />
             <LinearLayout android:layout_width="wrap_content" android:layout_height="wrap_content" android:gravity="center" android:orientation="horizontal">
-                <TextView android:id="@+id/widget_tire_rl" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="--" android:textColor="#FFFFFF" android:textSize="13sp" android:textStyle="bold" />
-                <FrameLayout android:layout_width="1.5dp" android:layout_height="18dp" android:layout_marginStart="6dp" android:layout_marginEnd="6dp" android:background="#33BEBEBE" />
-                <TextView android:id="@+id/widget_tire_rr" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="--" android:textColor="#FFFFFF" android:textSize="13sp" android:textStyle="bold" />
+                <TextView android:id="@+id/widget_tire_rl" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="--" android:textColor="@color/widget_text" android:textSize="13sp" android:textStyle="bold" />
+                <FrameLayout android:layout_width="1.5dp" android:layout_height="18dp" android:layout_marginStart="6dp" android:layout_marginEnd="6dp" android:background="@color/widget_divider" />
+                <TextView android:id="@+id/widget_tire_rr" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="--" android:textColor="@color/widget_text" android:textSize="13sp" android:textStyle="bold" />
             </LinearLayout>
         </LinearLayout>
         <ImageView android:id="@+id/widget_12v_battery_view" android:layout_width="0dp" android:layout_height="48dp" android:layout_weight="0.9" android:contentDescription="12V battery charge" android:scaleType="fitCenter" />
     </LinearLayout>
 
     <LinearLayout android:id="@+id/widget_expanded_section" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="7dp" android:orientation="vertical" android:visibility="gone">
-        <FrameLayout android:layout_width="match_parent" android:layout_height="1dp" android:background="#26BEBEBE" />
+        <FrameLayout android:layout_width="match_parent" android:layout_height="1dp" android:background="@color/widget_divider" />
         <LinearLayout android:id="@+id/widget_location_container" android:layout_width="match_parent" android:layout_height="wrap_content" android:gravity="center_vertical" android:orientation="horizontal" android:paddingTop="6dp">
             <ImageView android:id="@+id/widget_map_view" android:layout_width="0dp" android:layout_height="75dp" android:layout_weight="1.2" android:background="@drawable/bg_map_frame" android:contentDescription="Harita" android:scaleType="centerCrop" />
             <LinearLayout android:id="@+id/widget_address_container" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1.5" android:layout_marginStart="10dp" android:orientation="vertical">
-                <TextView android:id="@+id/widget_location_title" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Son Park Yeri" android:textColor="@color/accent_blue" android:textSize="11sp" android:textStyle="bold" />
-                <TextView android:id="@+id/widget_address" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Konum belirleniyor..." android:textColor="#FFFFFF" android:textSize="11sp" android:maxLines="2" android:ellipsize="end" />
-                <TextView android:id="@+id/widget_coords" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="--, --" android:textColor="#B5B5B5" android:textSize="10sp" android:singleLine="true" />
+                <TextView android:id="@+id/widget_location_title" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Son Park Yeri" android:textColor="@color/widget_blue" android:textSize="11sp" android:textStyle="bold" />
+                <TextView android:id="@+id/widget_address" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Konum belirleniyor..." android:textColor="@color/widget_text" android:textSize="11sp" android:maxLines="2" android:ellipsize="end" />
+                <TextView android:id="@+id/widget_coords" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="--, --" android:textColor="@color/widget_secondary" android:textSize="10sp" android:singleLine="true" />
             </LinearLayout>
         </LinearLayout>
     </LinearLayout>

@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Widget accents follow Samsung One UI dark-theme color guidance. -->
+    <color name="widget_blue">#3E91FF</color>
+    <color name="widget_text">#FFFFFF</color>
+    <color name="widget_secondary">#B9CCE8</color>
+    <color name="widget_divider">#334B91DF</color>
+</resources>

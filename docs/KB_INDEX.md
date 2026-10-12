@@ -37,6 +37,8 @@ Always read this file before loading any feature KB.
 
 - Güncel kaynak/APK durumu ve geliştirme notları: `docs/PROJECT_STATUS_2026_10_12.md`; derleme kısıtı, manuel doğrulama sınırları ve sıradaki ABRP aşaması için başlangıç belgesi.
 
+- ABRP otomatik rota: `docs/ABRP_AUTOMATIC_ROUTE_SYNC.md`; değişiklik imzası, yaklaşık 4 dakikalık kontrol, gelecek hedeflerin origin/waypoint ayrımı, belirsiz sonuçta tekrar önleme ve ayar akışı için kullanın.
+
 ## Cross-Feature Dependencies
 
 None registered yet.
@@ -45,4 +47,6 @@ None registered yet.
 
 None registered yet.
 
-- OLED Glass tema ve arayüz: `docs/OLED_GLASS_DESIGN.md`; telefon/saat/widget pastel vurgu paleti, gerçek siyah, cam katmanları, tipografi ve eski tema tercihinin davranışı için aynı `docs/togg-companion` KB kullanılmalıdır.
+- OLED Glass tema ve arayüz: `docs/OLED_GLASS_DESIGN.md`; telefon/saat pastel vurgu paleti, gerçek siyah, cam katmanları, tipografi ve eski tema tercihinin davranışı için aynı `docs/togg-companion` KB kullanılmalıdır.
+
+- Canlı One UI widget tasarımı: `docs/WIDGET_ONE_UI_DESIGN.md`; widgeta özel mavi/mint palet ve batarya kırmızı/amber/mavi/yeşil eşikleri, gerçek siyah yüzey ve okunabilirlik için aynı KB içindeki U6 mahallesini kullanın.

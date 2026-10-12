@@ -246,15 +246,24 @@ public final class ToggAppWidgetProvider extends AppWidgetProvider {
 
 
     private static int batteryColor(int percent) {
-        if (percent < 20) return 0xFFE6AFB4;
-        if (percent < 50) return 0xFFE5CAA2;
-        return 0xFFA8DCC8;
+        percent = Math.max(0, Math.min(100, percent));
+        if (percent < 20) return 0xFFEF4444;
+        if (percent < 50) return 0xFFFFB800;
+        if (percent < 80) return 0xFF3E91FF;
+        return 0xFF10B981;
     }
 
     private static int battery12vColor(int percent) {
-        if (percent < 60) return 0xFFE6AFB4;
-        if (percent < 80) return 0xFFE5CAA2;
-        return 0xFFC6B6E5;
+        percent = Math.max(0, Math.min(100, percent));
+        if (percent < 60) return 0xFFEF4444;
+        if (percent < 80) return 0xFFFFB800;
+        return 0xFF10B981;
+    }
+
+    private static void drawPercentageBadge(Canvas canvas, RectF bounds) {
+        Paint badge = new Paint(Paint.ANTI_ALIAS_FLAG);
+        badge.setColor(0xF006131F);
+        canvas.drawRoundRect(bounds, 10f, 10f, badge);
     }
 
     private static Bitmap createHvBatteryBitmap(int percent) {
@@ -267,6 +276,7 @@ public final class ToggAppWidgetProvider extends AppWidgetProvider {
         canvas.drawRoundRect(new RectF(5, 5, 145, 67), 10, 10, outline);
         canvas.drawRoundRect(new RectF(147, 24, 157, 48), 3, 3, fill);
         if (percent > 0) canvas.drawRoundRect(new RectF(11, 11, 11 + 130f * percent / 100f, 61), 6, 6, fill);
+        drawPercentageBadge(canvas, new RectF(29, 17, 121, 55));
         Paint text = new Paint(Paint.ANTI_ALIAS_FLAG); text.setColor(Color.WHITE);
         text.setTextSize(29f); text.setTypeface(android.graphics.Typeface.create("sans-serif", android.graphics.Typeface.BOLD));
         text.setTextAlign(Paint.Align.CENTER); text.setShadowLayer(2f, 0, 1, Color.BLACK);
@@ -289,10 +299,13 @@ public final class ToggAppWidgetProvider extends AppWidgetProvider {
         canvas.drawRoundRect(new RectF(22, 3, 48, 15), 2f, 2f, fill);
         canvas.drawRoundRect(new RectF(112, 3, 138, 15), 2f, 2f, fill);
         if (percent > 0) canvas.drawRoundRect(new RectF(12, 18, 12 + 136f * percent / 100f, 64), 4f, 4f, fill);
-        Paint sign = new Paint(Paint.ANTI_ALIAS_FLAG); sign.setColor(Color.WHITE); sign.setStrokeWidth(3f); sign.setStrokeCap(Paint.Cap.ROUND);
+        drawPercentageBadge(canvas, new RectF(20, 18, 50, 38));
+        drawPercentageBadge(canvas, new RectF(110, 18, 140, 38));
+        Paint sign = new Paint(Paint.ANTI_ALIAS_FLAG); sign.setColor(0xFFFFFFFF); sign.setShadowLayer(2f, 0, 1, Color.BLACK); sign.setStrokeWidth(3f); sign.setStrokeCap(Paint.Cap.ROUND);
         canvas.drawLine(26, 28, 44, 28, sign);
         canvas.drawLine(116, 28, 134, 28, sign);
         canvas.drawLine(125, 20, 125, 36, sign);
+        drawPercentageBadge(canvas, new RectF(48, 23, 112, 59));
         Paint text = new Paint(Paint.ANTI_ALIAS_FLAG); text.setColor(Color.WHITE);
         text.setTextSize(23f); text.setTypeface(android.graphics.Typeface.create("sans-serif", android.graphics.Typeface.BOLD));
         text.setTextAlign(Paint.Align.CENTER); text.setShadowLayer(2f, 0, 1, Color.BLACK);
@@ -307,29 +320,29 @@ public final class ToggAppWidgetProvider extends AppWidgetProvider {
     private static Bitmap createRoadRangeBitmap(int rangeKm, boolean isCharging) {
         Bitmap bitmap = Bitmap.createBitmap(160, 74, Bitmap.Config.ARGB_8888);
         Canvas canvas = new Canvas(bitmap);
-        Paint asphaltCard = new Paint(Paint.ANTI_ALIAS_FLAG); asphaltCard.setColor(0xFF181818);
+        Paint asphaltCard = new Paint(Paint.ANTI_ALIAS_FLAG); asphaltCard.setColor(0xFF091B30);
         canvas.drawRoundRect(new RectF(5, 5, 155, 67), 10f, 10f, asphaltCard);
-        Paint border = new Paint(Paint.ANTI_ALIAS_FLAG); border.setColor(0x55BEBEBE); border.setStyle(Paint.Style.STROKE); border.setStrokeWidth(2f);
+        Paint border = new Paint(Paint.ANTI_ALIAS_FLAG); border.setColor(0x554B91DF); border.setStyle(Paint.Style.STROKE); border.setStrokeWidth(2f);
         canvas.drawRoundRect(new RectF(5, 5, 155, 67), 10f, 10f, border);
 
         Path road = new Path();
         road.moveTo(34, 67); road.lineTo(54, 5); road.lineTo(106, 5); road.lineTo(126, 67); road.close();
-        Paint roadFill = new Paint(Paint.ANTI_ALIAS_FLAG); roadFill.setColor(0xFF232323);
+        Paint roadFill = new Paint(Paint.ANTI_ALIAS_FLAG); roadFill.setColor(0xFF153658);
         canvas.drawPath(road, roadFill);
 
-        Paint shoulders = new Paint(Paint.ANTI_ALIAS_FLAG); shoulders.setColor(0x88BEBEBE); shoulders.setStyle(Paint.Style.STROKE); shoulders.setStrokeWidth(2.5f);
+        Paint shoulders = new Paint(Paint.ANTI_ALIAS_FLAG); shoulders.setColor(0x883E91FF); shoulders.setStyle(Paint.Style.STROKE); shoulders.setStrokeWidth(2.5f);
         canvas.drawLine(34, 67, 54, 5, shoulders);
         canvas.drawLine(126, 67, 106, 5, shoulders);
 
-        Paint centerLines = new Paint(Paint.ANTI_ALIAS_FLAG); centerLines.setColor(0xFFD3D3D3); centerLines.setStyle(Paint.Style.STROKE); centerLines.setStrokeWidth(2.5f); centerLines.setStrokeCap(Paint.Cap.ROUND);
+        Paint centerLines = new Paint(Paint.ANTI_ALIAS_FLAG); centerLines.setColor(0xFFFFCA67); centerLines.setStyle(Paint.Style.STROKE); centerLines.setStrokeWidth(2.5f); centerLines.setStrokeCap(Paint.Cap.ROUND);
         canvas.drawLine(80, 10, 80, 18, centerLines);
         canvas.drawLine(80, 26, 80, 36, centerLines);
         canvas.drawLine(80, 44, 80, 56, centerLines);
 
         RectF plate = new RectF(16, 17, 144, 55);
-        Paint plateFill = new Paint(Paint.ANTI_ALIAS_FLAG); plateFill.setColor(0xEE101010);
+        Paint plateFill = new Paint(Paint.ANTI_ALIAS_FLAG); plateFill.setColor(0xF0000000);
         canvas.drawRoundRect(plate, 8f, 8f, plateFill);
-        Paint plateStroke = new Paint(Paint.ANTI_ALIAS_FLAG); plateStroke.setColor(isCharging ? 0xFFA8DCC8 : 0xFFABCDEF); plateStroke.setStyle(Paint.Style.STROKE); plateStroke.setStrokeWidth(1.5f);
+        Paint plateStroke = new Paint(Paint.ANTI_ALIAS_FLAG); plateStroke.setColor(isCharging ? 0xFF49DCA6 : 0xFF3E91FF); plateStroke.setStyle(Paint.Style.STROKE); plateStroke.setStrokeWidth(1.5f);
         canvas.drawRoundRect(plate, 8f, 8f, plateStroke);
 
         Paint textPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
@@ -347,7 +360,7 @@ public final class ToggAppWidgetProvider extends AppWidgetProvider {
 
     private static void setTirePressure(RemoteViews views, int viewId, double pressurePsi) {
         views.setTextViewText(viewId, (pressurePsi < 32.0 ? "! " : "") + String.format(Locale.US, "%.1f", pressurePsi));
-        views.setTextColor(viewId, pressurePsi < 32.0 ? 0xFFE6AFB4 : 0xFFFFFFFF);
+        views.setTextColor(viewId, pressurePsi < 32.0 ? 0xFFFF7D88 : 0xFFFFFFFF);
     }
 
     private static Bitmap createMapPreviewBitmap(Context context, double lat, double lon, String timeStr) {
@@ -381,9 +394,9 @@ public final class ToggAppWidgetProvider extends AppWidgetProvider {
     }
 
     private static void drawRadarFallback(Canvas canvas, double lat, double lon) {
-        canvas.drawColor(0xFF151515);
+        canvas.drawColor(0xFF081A2D);
         Paint radar = new Paint(Paint.ANTI_ALIAS_FLAG);
-        radar.setColor(0x55BEBEBE); radar.setStyle(Paint.Style.STROKE); radar.setStrokeWidth(1f);
+        radar.setColor(0x554B91DF); radar.setStyle(Paint.Style.STROKE); radar.setStrokeWidth(1f);
         for (int r = 20; r <= 60; r += 20) canvas.drawCircle(140, 70, r, radar);
         canvas.drawLine(140, 8, 140, 132, radar);
         canvas.drawLine(8, 70, 272, 70, radar);
@@ -404,14 +417,14 @@ public final class ToggAppWidgetProvider extends AppWidgetProvider {
         float right = 274f;
         float left = Math.max(6f, right - textWidth - 14f);
         Paint badge = new Paint(Paint.ANTI_ALIAS_FLAG);
-        badge.setColor(0xCC0F0F0F);
+        badge.setColor(0xE6000000);
         canvas.drawRoundRect(new RectF(left, 6f, right, 24f), 7f, 7f, badge);
         canvas.drawText(label, (left + right) / 2f, 18.5f, time);
-        Paint halo = new Paint(Paint.ANTI_ALIAS_FLAG); halo.setColor(0x22ABCDEF); canvas.drawCircle(cx, cy, 29f, halo);
+        Paint halo = new Paint(Paint.ANTI_ALIAS_FLAG); halo.setColor(0x223E91FF); canvas.drawCircle(cx, cy, 29f, halo);
         Paint pulse = new Paint(Paint.ANTI_ALIAS_FLAG); pulse.setStyle(Paint.Style.STROKE); pulse.setStrokeWidth(2f);
-        pulse.setColor(0x66ABCDEF); canvas.drawCircle(cx, cy, 24f, pulse);
-        pulse.setColor(0xAAABCDEF); canvas.drawCircle(cx, cy, 15f, pulse);
-        Paint pin = new Paint(Paint.ANTI_ALIAS_FLAG); pin.setColor(0xFFABCDEF); pin.setShadowLayer(5f, 0, 1, 0xAAABCDEF);
+        pulse.setColor(0x663E91FF); canvas.drawCircle(cx, cy, 24f, pulse);
+        pulse.setColor(0xAA3E91FF); canvas.drawCircle(cx, cy, 15f, pulse);
+        Paint pin = new Paint(Paint.ANTI_ALIAS_FLAG); pin.setColor(0xFF3E91FF); pin.setShadowLayer(5f, 0, 1, 0xAA3E91FF);
         canvas.drawCircle(cx, cy, 7f, pin);
         Paint center = new Paint(Paint.ANTI_ALIAS_FLAG); center.setColor(Color.WHITE);
         canvas.drawRoundRect(new RectF(cx - 3.5f, cy - 5.5f, cx + 3.5f, cy + 5.5f), 2f, 2f, center);

@@ -38,3 +38,19 @@ Gerçek araç komutu veya tokenlı rota POST'u gönderilmedi. HTTP 301 teşhisin
 - [KB yönlendiricisi](KB_INDEX.md)
 
 Orijinal APK, hesap sırları, sertifika/token cache'i, decompile edilmiş üçüncü taraf paketler ve yerel derleme çıktıları repository'ye eklenmez.
+
+## Sonraki kaynak güncellemesi: ABRP otomatik rota
+
+Kullanıcı paketlenmiş güncel APK ile manuel hedefin bulutta kabul edildiğini bildirdi; araç ekranı denemesi pending. Yaklaşık 7 dakikalık ABRP değişiklik kontrolü, kapsamlı hedef dizisi ve tekrar önleme kaynakta eklendi. Bu yeni kod henüz APK’ye alınmadı. Ayrıntılar: [ABRP otomatik rota](ABRP_AUTOMATIC_ROUTE_SYNC.md).
+
+## Aralık güncellemesi
+
+Kullanıcı isteğiyle araç SoC/telemetri gönderimi ve ABRP rota kontrolü yaklaşık 4 dakikalık aralığa düşürüldü. Bu kaynak güncellemesi henüz APK’ye alınmadı.
+
+## Widget renk güncellemesi
+
+Widget canlı One UI mavi/mint/lavanta vurguları ve gerçek siyah yüzeyle güncellendi. Kaynak değişikliği henüz APK’ye alınmadı. [Widget tasarım notları](WIDGET_ONE_UI_DESIGN.md).
+
+## Son teslim: widget renkleri ve ABRP otomasyonu
+
+Kullanıcının açık derleme isteğiyle telefon debug APK’sı yeniden başarıyla derlendi. Son APK; One UI widget tasarımını, eski HV %20/%50/%80 ve 12V %60/%80 renk eşiklerini, 4 dakikalık ABRP telemetri/rota kontrolünü ve değişen rotayı otomatik buluta gönderme kaynak kodunu içerir. Önceki “kaynakta, APK’de yok” notları tarihsel durumdur. Araç teslimi, ABRP yanıt uyumu ve One UI cihaz görüntüsü kullanıcı tarafından manuel doğrulanacaktır. Bir sonraki derleme için yeniden açık istek gerekir.

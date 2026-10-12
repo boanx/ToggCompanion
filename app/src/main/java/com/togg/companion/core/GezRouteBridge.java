@@ -51,12 +51,23 @@ public final class GezRouteBridge {
         public final double lon;
         public final String name;
         public final List<GezPoint> stops;
+        public final boolean stopsIncludeOrigin;
         public GezPoint(double lat, double lon, String name) { this(lat, lon, name, null); }
         public GezPoint(double lat, double lon, String name, List<GezPoint> stops) {
+            this(lat, lon, name, stops, true);
+        }
+        private GezPoint(double lat, double lon, String name, List<GezPoint> stops, boolean stopsIncludeOrigin) {
             this.lat = lat; this.lon = lon; this.name = name;
             this.stops = stops != null ? Collections.unmodifiableList(new ArrayList<>(stops)) : Collections.emptyList();
+            this.stopsIncludeOrigin = stopsIncludeOrigin;
         }
         public boolean hasMultipleStops() { return stops.size() > 1; }
+        /** Ordered future destinations; their first item is not the vehicle's origin. */
+        public static GezPoint upcomingDestinations(List<GezPoint> destinations) {
+            if (destinations == null || destinations.isEmpty()) throw new IllegalArgumentException("Rota hedefi bulunamadı.");
+            GezPoint last = destinations.get(destinations.size() - 1);
+            return new GezPoint(last.lat, last.lon, last.name, destinations, false);
+        }
     }
 
     public static GezPoint parseDirect(String text) {

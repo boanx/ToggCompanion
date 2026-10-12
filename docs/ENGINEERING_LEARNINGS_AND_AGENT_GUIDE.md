@@ -67,7 +67,7 @@ Token expiry ile VIN veya araç erişim izni (`FriendVehicleInfo`) sorununu ayı
 
 ### Tuzak 6: ABRP canlı takipte aynı durağı tekrar tekrar iletmek
 
-15 dakikalık `get_latest_plan` kontrolünde son gönderilen durak anahtarını `SecureTokenStorage` içinde saklayın. Durak koordinatı anahtarı değişmediyse yeniden dispatch etmeyin. Başarılı dispatch ve kullanıcıya bildirim zamanını, başarısız deneme ile karıştırmayın.
+Yaklaşık 4 dakikalık `get_latest_plan` kontrolünde hesap/VIN/ABRP token kapsamındaki kabul edilmiş rota imzasını `SecureTokenStorage` içinde saklayın. Durak koordinatı anahtarı değişmediyse yeniden dispatch etmeyin. Başarılı dispatch ve kullanıcıya bildirim zamanını, başarısız deneme ile karıştırmayın.
 
 ### Tuzak 7: Android intent'i açıldı diye hedef iletildi varsaymak
 
@@ -77,12 +77,12 @@ Intent'in başka uygulama tarafından kabul edilmesi veya ekran açılması, ara
 
 ABRP entegrasyonunda iki bağımsız zamanlama bulunur:
 
-- Canlı telemetri gönderimi: `https://api.iternio.com/1/tlm/send`, 7 dakikalık zincirlenen `JobScheduler` işi.
+- Canlı telemetri gönderimi: `https://api.iternio.com/1/tlm/send`, 4 dakikalık zincirlenen `JobScheduler` işi.
 - Rota kontrolü: `https://api.iternio.com/1/tlm/get_latest_plan`, etkinleştirildiğinde 15 dakikalık ayrı `JobScheduler` işi.
 
 `AbrpClient` ABRP iletişimini/parsing'i, `AbrpJobService` arka plan işlerini, `SecureTokenStorage` ise rota senkronizasyon tercihi ile son gönderilen durak bilgisini yönetir. Bir iş tamamlandığında sonraki tek seferlik işi planlama yaklaşımını koruyun; telemetri gönderim aralığını rota takibi için değiştirmeyin. Yeni durak araca gönderildiğinde Android bildirimi gösterilir. İşletim sistemi zamanlaması ve pil kısıtlamaları nedeniyle JobScheduler'ın tam dakika hassasiyetinde çalışacağını garanti etmeyin.
 
-Rota takibini ayarlardan ayrı olarak açıp kapatın. Hedef değişimi koordinat anahtarı üzerinden karşılaştırılmalı; token/izin veya ağ hatasında bildirim ve fallback sonucu dürüstçe raporlanmalıdır.
+Rota takibini ayarlardan ayrı olarak açıp kapatın. Değişiklik tüm gelecek hedeflerin sırası ve varsa yayınlanmış rota kimliği/geometrisi üzerinden karşılaştırılır. Arka planda Trumore fallback’i açılmaz; belirsiz POST sonucu aynı rota için otomatik tekrarlanmaz. Güncel akış: [ABRP otomatik rota](ABRP_AUTOMATIC_ROUTE_SYNC.md).
 Trumore fallback intent'inin açılması araç hedefinin iletildiğini kanıtlamaz; başarısız Togg Cloud gönderiminde durak anahtarını “gönderildi” olarak kaydetmeyin ve sonraki kontrolde yeniden deneyin.
 
 ## 5. Konum, saat eşitlemesi ve devre dışı kontroller

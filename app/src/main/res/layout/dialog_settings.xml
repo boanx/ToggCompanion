@@ -224,8 +224,8 @@
 
     <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="12dp" android:background="@drawable/tile_bg" android:orientation="vertical" android:padding="12dp">
         <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="ABRP Canlı Telemetri" android:textColor="@color/accent_togg" android:textStyle="bold" />
-        <CheckBox android:id="@+id/cb_abrp_enabled" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="7 dakikada bir ABRP'ye gönder" android:textColor="@color/text_primary" />
-        <CheckBox android:id="@+id/cb_abrp_route_sync" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="15 dakikada bir ABRP rotasını araca aktar" android:textColor="@color/text_primary" />
+        <CheckBox android:id="@+id/cb_abrp_enabled" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="4 dakikada bir ABRP'ye gönder" android:textColor="@color/text_primary" />
+        <CheckBox android:id="@+id/cb_abrp_route_sync" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="ABRP rota değişikliğini araca aktar (~4 dk kontrol)" android:textColor="@color/text_primary" />
         <EditText android:id="@+id/et_abrp_token" android:layout_width="match_parent" android:layout_height="wrap_content" android:hint="ABRP Generic Token" android:inputType="textPassword" android:singleLine="true" android:textColor="@color/text_primary" />
         <RadioGroup android:id="@+id/rg_abrp_capacity" android:layout_width="match_parent" android:layout_height="wrap_content">
             <RadioButton android:id="@+id/rb_abrp_long" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="88.5 kWh (Uzun Menzil)" />

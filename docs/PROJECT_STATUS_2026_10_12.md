@@ -60,3 +60,7 @@ Batarya/akü siyah etiket zeminleri kaldırıldı. Yenileme butonu %80 boyuta (3
 ## Son teslim düzeltmesi
 
 Yukarıdaki güncel APK bilgisi geçerlidir. Aşağı/önceki tarihsel kaynak-only kayıtları son paketle aşılmıştır. Kullanım ve geliştirme başlangıcı: [Agent devir rehberi](AGENT_HANDOFF.md).
+
+## Son teslim: saat APK’sı
+
+Açık kullanıcı isteğiyle `:wear:assembleDebug --offline --console=plain` başarılı oldu. Güncel kaynakların pastel OLED Wear OS uygulaması/Tile ve telefon eşitleme kodu pakette yer alır. Kaynak işlevleri değiştirilmedi. Yerel teslim `outputs/ToggCompanion-wear-current-debug.apk`; SHA256 `71ccd55e119916ff4ee52c2171f1eb2cfe7882cfa60d95894bc3c69c5c9c5b33`. Saat minSDK30, paket `com.togg.companion`, versionName1.0/versionCode1. Fiziksel saat/telefon eşitlemesi manuel doğrulama bekler. Tek aktif APK workspace kuralıyla yerel telefon paketi arşivlendi; GitHub’daki telefon asset’i korunur.

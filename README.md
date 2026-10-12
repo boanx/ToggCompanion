@@ -47,3 +47,7 @@ Samsung Galaxy Watch için sıfırdan tasarlanan minimal, saf AMOLED siyah zemin
 
 Mimari kanallar, operasyonel öğrenimler ve katkı kuralları için [Mühendislik Öğrenimleri ve Agent Rehberi](docs/ENGINEERING_LEARNINGS_AND_AGENT_GUIDE.md) belgesine bakın.
 
+
+## Güncel saat teslimi
+
+Son kaynaklardan Wear OS debug APK’sı da derlendi; [GitHub Releases](https://github.com/boanx/ToggCompanion/releases) üzerinden saat paketini alın. Saat minSDK30 ve telefonla aynı paket/imza gerektirir. Kurulum/eşitleme adımları [Agent devir rehberinde](docs/AGENT_HANDOFF.md). Fiziksel saat doğrulaması manueldir.

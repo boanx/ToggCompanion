@@ -12,21 +12,19 @@
 
 **Kullanıcı açıkça istemeden APK compile/assemble/package/rebuild yapılmayacak. GitHub commit/push isteği derleme izni sayılmaz.**
 
-Son yerel telefon APK'si `ToggCompanion-direct-route-debug.apk`, SHA256:
+Son yerel telefon APK’sı workspace `outputs/ToggCompanion-current-debug.apk` dosyasıdır. Güncel derleme SHA256:
 
-`82a37cdba2434e3f465ddcbd91392eb05a1e84e47db366cdaa59d77c22cc43b8`
+`79cae1b71d8d2969ba572325210207ab69ba6fdcb75f42def2e252d7a5075786`
 
-Bu APK, sonraki **HTTP 301 adres düzeltmesini ve pastel temayı içermez**. Kaynak kod APK'den ileridedir. APK'ler Git tarafından ignore edilir; bu güncelleme GitHub release/APK yayını değildir. Eski paketler ve geçici dosyalar yerel `obsolete/` arşivindedir.
+Bu APK HTTP301 navigasyon host düzeltmesini, pastel OLED telefon temasını, One UI widget’ını, siyah batarya etiketlerinin kaldırılmasını,35,2dp ortalanmış yenileme düğmesini ve4 dakika ABRP telemetri/otomatik rota kaynak kodunu içerir. Telefon `:app:assembleDebug --offline --console=plain` derlemesi başarılıdır. Saat APK’sı bu teslimde üretilmedi. APK Git’e eklenmez; yayın isteği GitHub Release asset ile karşılanır.
 
-Önceki Smart Access aşamasında 110 JVM testi başarılı olmuş ve telefon/saat debug paketleri derlenmiştir. Son doğrudan rota aşamasında telefon APK'si derlenmiştir. HTTP 301 ve pastel kaynak güncellemelerinden sonra APK/JVM testi çalıştırılmamıştır. Son statik XML, KB ve diff kontrolleri başarılıdır; önceki test sonucu son kaynak ağacının test edilmiş olduğu anlamına gelmez.
-
-Gerçek araç komutu veya tokenlı rota POST'u gönderilmedi. HTTP 301 teşhisinde yalnız kimliksiz HEAD istekleri yapıldı.
+Önceki110 JVM testi tarihsel sonuçtur; bu tur test çalıştırılmadı. Fiziksel BLE/araç Gez teslimi, kullanıcıya özgü ABRP yanıtı ve yeni widget görüntüsü manuel doğrulama bekler. Kullanıcı önceki pakette manuel hedefin bulutta kabul edildiğini bildirdi; bu, fiziksel araç teslimi kanıtı değildir.
 
 ## Sıradaki işler
 
-1. Kullanıcı derleme istediğinde kaynak düzeltmelerini APK'ye almak.
-2. Tek hedefin API kabulünü ve araç Gez ekranına teslimini manuel doğrulamak; sonra çok durak davranışını incelemek.
-3. Canlı telemetri → ABRP → değişen rota/duraklar ve SoC → araç akışını geliştirmek. İstenen yeni 7 dakikalık akış henüz tamamlanmış değildir; mevcut iş zamanlayıcısı tam dakika hassasiyeti garantisi vermez.
+1. Kullanıcının yeni widget’ı kompakt/geniş boyutlarda denemesi.
+2. Tek/çok hedefin araç Gez ekranına teslimini ve Smart Access hareketlerini manuel doğrulamak.
+3. Canlı ABRP JSON uyumunu doğrulamak; ABRP SoC tahminlerinin araç payload’ına aktarımı için doğrulanmış alan halen yoktur.4 dakikalık zamanlayıcı tam dakika garantisi vermez.
 
 ## Belgeler
 
@@ -54,3 +52,11 @@ Widget canlı One UI mavi/mint/lavanta vurguları ve gerçek siyah yüzeyle gün
 ## Son teslim: widget renkleri ve ABRP otomasyonu
 
 Kullanıcının açık derleme isteğiyle telefon debug APK’sı yeniden başarıyla derlendi. Son APK; One UI widget tasarımını, eski HV %20/%50/%80 ve 12V %60/%80 renk eşiklerini, 4 dakikalık ABRP telemetri/rota kontrolünü ve değişen rotayı otomatik buluta gönderme kaynak kodunu içerir. Önceki “kaynakta, APK’de yok” notları tarihsel durumdur. Araç teslimi, ABRP yanıt uyumu ve One UI cihaz görüntüsü kullanıcı tarafından manuel doğrulanacaktır. Bir sonraki derleme için yeniden açık istek gerekir.
+
+## Widget ekran görüntüsü düzeltmesi (kaynak)
+
+Batarya/akü siyah etiket zeminleri kaldırıldı. Yenileme butonu %80 boyuta (35,2dp) küçültüldü; 22dp beyaz vektör tam merkezde. Bu sonraki değişiklik için derleme/push yapılmadı; mevcut teslim APK’sı değişmedi.
+
+## Son teslim düzeltmesi
+
+Yukarıdaki güncel APK bilgisi geçerlidir. Aşağı/önceki tarihsel kaynak-only kayıtları son paketle aşılmıştır. Kullanım ve geliştirme başlangıcı: [Agent devir rehberi](AGENT_HANDOFF.md).

@@ -19,7 +19,7 @@
             <TextView android:id="@+id/widget_plate" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="--" android:textColor="@color/widget_secondary" android:textSize="10sp" />
         </LinearLayout>
         <TextView android:id="@+id/widget_updated" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Son Veri: --:--" android:textColor="@color/widget_secondary" android:textSize="10sp" android:padding="5dp" />
-        <TextView android:id="@+id/widget_refresh" android:layout_width="44dp" android:layout_height="44dp" android:background="@drawable/bg_widget_refresh" android:contentDescription="Araç verisini yenile" android:gravity="center" android:text="↻" android:textColor="@color/widget_text" android:textSize="22sp" />
+        <ImageView android:id="@+id/widget_refresh" android:layout_width="35.2dp" android:layout_height="35.2dp" android:padding="6.6dp" android:background="@drawable/bg_widget_refresh" android:contentDescription="Araç verisini yenile" android:src="@drawable/ic_widget_refresh" android:scaleType="fitCenter" />
     </LinearLayout>
 
     <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="8dp" android:gravity="center_vertical" android:orientation="horizontal">

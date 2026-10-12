@@ -260,12 +260,6 @@ public final class ToggAppWidgetProvider extends AppWidgetProvider {
         return 0xFF10B981;
     }
 
-    private static void drawPercentageBadge(Canvas canvas, RectF bounds) {
-        Paint badge = new Paint(Paint.ANTI_ALIAS_FLAG);
-        badge.setColor(0xF006131F);
-        canvas.drawRoundRect(bounds, 10f, 10f, badge);
-    }
-
     private static Bitmap createHvBatteryBitmap(int percent) {
         percent = Math.max(0, Math.min(100, percent));
         Bitmap bitmap = Bitmap.createBitmap(160, 74, Bitmap.Config.ARGB_8888);
@@ -276,7 +270,6 @@ public final class ToggAppWidgetProvider extends AppWidgetProvider {
         canvas.drawRoundRect(new RectF(5, 5, 145, 67), 10, 10, outline);
         canvas.drawRoundRect(new RectF(147, 24, 157, 48), 3, 3, fill);
         if (percent > 0) canvas.drawRoundRect(new RectF(11, 11, 11 + 130f * percent / 100f, 61), 6, 6, fill);
-        drawPercentageBadge(canvas, new RectF(29, 17, 121, 55));
         Paint text = new Paint(Paint.ANTI_ALIAS_FLAG); text.setColor(Color.WHITE);
         text.setTextSize(29f); text.setTypeface(android.graphics.Typeface.create("sans-serif", android.graphics.Typeface.BOLD));
         text.setTextAlign(Paint.Align.CENTER); text.setShadowLayer(2f, 0, 1, Color.BLACK);
@@ -299,13 +292,10 @@ public final class ToggAppWidgetProvider extends AppWidgetProvider {
         canvas.drawRoundRect(new RectF(22, 3, 48, 15), 2f, 2f, fill);
         canvas.drawRoundRect(new RectF(112, 3, 138, 15), 2f, 2f, fill);
         if (percent > 0) canvas.drawRoundRect(new RectF(12, 18, 12 + 136f * percent / 100f, 64), 4f, 4f, fill);
-        drawPercentageBadge(canvas, new RectF(20, 18, 50, 38));
-        drawPercentageBadge(canvas, new RectF(110, 18, 140, 38));
         Paint sign = new Paint(Paint.ANTI_ALIAS_FLAG); sign.setColor(0xFFFFFFFF); sign.setShadowLayer(2f, 0, 1, Color.BLACK); sign.setStrokeWidth(3f); sign.setStrokeCap(Paint.Cap.ROUND);
         canvas.drawLine(26, 28, 44, 28, sign);
         canvas.drawLine(116, 28, 134, 28, sign);
         canvas.drawLine(125, 20, 125, 36, sign);
-        drawPercentageBadge(canvas, new RectF(48, 23, 112, 59));
         Paint text = new Paint(Paint.ANTI_ALIAS_FLAG); text.setColor(Color.WHITE);
         text.setTextSize(23f); text.setTypeface(android.graphics.Typeface.create("sans-serif", android.graphics.Typeface.BOLD));
         text.setTextAlign(Paint.Align.CENTER); text.setShadowLayer(2f, 0, 1, Color.BLACK);

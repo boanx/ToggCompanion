@@ -102,6 +102,7 @@ Implemented native Android companion phone application (`app/`) and Wear OS Gala
 - `F89` = `docs/ABRP_AUTOMATIC_ROUTE_SYNC.md`
 - `F90` = `app/src/main/res/values/widget_colors.xml`
 - `F91` = `docs/WIDGET_ONE_UI_DESIGN.md`
+- `F92` = `docs/AGENT_HANDOFF.md`
 
 ## Entity IDs
 

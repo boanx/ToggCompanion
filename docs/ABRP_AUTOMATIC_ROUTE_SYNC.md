@@ -1,6 +1,6 @@
 # ABRP → otomatik araç rota aktarımı
 
-12 Ekim 2026. Kullanıcı güncel telefon APK'sinin manuel hedefini buluta kabul ettirdiğini bildirdi; araç Gez ekranını ayrıca kontrol edecek. Aşağıdaki otomasyon kaynak kodda uygulanmıştır, henüz APK'ye alınmamıştır.
+12 Ekim 2026. Kullanıcı güncel telefon APK'sinin manuel hedefini buluta kabul ettirdiğini bildirdi; araç Gez ekranını ayrıca kontrol edecek. Aşağıdaki otomasyon güncel telefon APK’sında yer alır; canlı ABRP/araç doğrulaması manueldir.
 
 ## Kullanım
 

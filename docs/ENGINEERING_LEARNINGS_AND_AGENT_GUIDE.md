@@ -78,7 +78,7 @@ Intent'in başka uygulama tarafından kabul edilmesi veya ekran açılması, ara
 ABRP entegrasyonunda iki bağımsız zamanlama bulunur:
 
 - Canlı telemetri gönderimi: `https://api.iternio.com/1/tlm/send`, 4 dakikalık zincirlenen `JobScheduler` işi.
-- Rota kontrolü: `https://api.iternio.com/1/tlm/get_latest_plan`, etkinleştirildiğinde 15 dakikalık ayrı `JobScheduler` işi.
+- Rota kontrolü: `https://api.iternio.com/1/tlm/get_latest_plan`, etkinleştirildiğinde 4 dakikalık ayrı `JobScheduler` işi.
 
 `AbrpClient` ABRP iletişimini/parsing'i, `AbrpJobService` arka plan işlerini, `SecureTokenStorage` ise rota senkronizasyon tercihi ile son gönderilen durak bilgisini yönetir. Bir iş tamamlandığında sonraki tek seferlik işi planlama yaklaşımını koruyun; telemetri gönderim aralığını rota takibi için değiştirmeyin. Yeni durak araca gönderildiğinde Android bildirimi gösterilir. İşletim sistemi zamanlaması ve pil kısıtlamaları nedeniyle JobScheduler'ın tam dakika hassasiyetinde çalışacağını garanti etmeyin.
 
@@ -96,9 +96,9 @@ Trumore fallback intent'inin açılması araç hedefinin iletildiğini kanıtlam
 
 1. Önce `AGENTS.md`, `docs/KB_PROTOCOL.md` ve `docs/KB_INDEX.md` talimatlarını okuyun. Feature bilgisi gerekiyorsa indeksin yönlendirdiği en küçük KB kapsamını seçin; IDMAP, KG adjacency ve ilgili FACTS kayıtlarını kullanın. Kanıtlanmamış araç davranışı eklemeyin.
 2. Dar kapsamlı değişiklik yapın. Kullanıcıya görünen başarı metnini yalnızca gerçek API/GATT sonucuna dayandırın. Secret/token değerlerini loglara veya dokümana yazmayın.
-3. JVM testlerini çalıştırın: `./gradlew.bat testDebugUnitTest` (Windows'ta gerekirse Android Studio JBR için `JAVA_HOME` ayarlayın). BLE donanım davranışını JVM testi tek başına doğrulamaz; cihaz testi gerekiyorsa bunu ayrıca belirtin.
+3. Kullanıcı test istediğinde JVM testlerini çalıştırın: `./gradlew.bat testDebugUnitTest` (Windows'ta gerekirse Android Studio JBR için `JAVA_HOME` ayarlayın). BLE donanım davranışını JVM testi tek başına doğrulamaz; cihaz testi gerekiyorsa bunu ayrıca belirtin.
 4. KB dosyaları değiştiğinde `node scripts/validate-kb.cjs` çalıştırın ve KB fact ID'lerini yeniden numaralandırmayın.
-5. APK teslimi istenen bir görevde `./gradlew.bat assembleDebug` çalıştırın ve güncel APK'yı `C:\Users\aozyurt\Documents\AG\TOGG_Asistan.apk` konumuna kopyalayın. Kopyalamanın başarılı olduğunu dosya varlığı/boyutuyla doğrulayın. Bu kılavuz tek başına her kod değişikliğinde APK kopyalamayı zorunlu kılmaz; görev paketinin teslim koşulunu izleyin.
+5. Yalnız açık kullanıcı derleme isteğiyle `./gradlew.bat :app:assembleDebug --offline --console=plain` çalıştırın. Güncel paketi workspace `outputs/ToggCompanion-current-debug.apk` yoluna taşıyın; eski teslimleri manifest ile `obsolete/` altında arşivleyin. APK’yi Git’e eklemeyin; yayın isteğinde GitHub Release asset kullanın.
 6. Git commit/rebase/push işlemlerinde önce branch ve working tree'yi inceleyin. Mevcut kullanıcı değişikliklerini koruyun, istenen kapsam dışında dosyaları eklemeyin ve son durumda branch durumunu raporlayın.
 
 ## 7. İlgili kaynaklar
@@ -111,4 +111,8 @@ Trumore fallback intent'inin açılması araç hedefinin iletildiğini kanıtlam
 
 ## 12 Ekim 2026 HTTP 301 düzeltmesi
 
-Rota yolu için alan adı navigasyon API’sine düzeltildi. Kaynak kod güncel; mevcut APK yeniden derlenmedi ve bu düzeltmeyi içermiyor. Kanıt ve durum: [HTTP301_ROUTE_FIX.md](HTTP301_ROUTE_FIX.md).
+Rota yolu için alan adı navigasyon API’sine düzeltildi. Bu düzeltme güncel telefon APK’sında yer alır. Kanıt ve durum: [HTTP301_ROUTE_FIX.md](HTTP301_ROUTE_FIX.md).
+
+## Güncel kullanım ve devir rehberi
+
+Kurulum, neyi/neden/nasıl değiştirdiğimiz, kaynak dosyaları ve doğrulama sınırları için [Agent devir rehberi](AGENT_HANDOFF.md) ile başlayın. Önceki zamanlama ve teslim notları yerine güncel durumu kullanın.

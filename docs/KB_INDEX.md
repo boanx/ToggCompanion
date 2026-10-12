@@ -50,3 +50,5 @@ None registered yet.
 - OLED Glass tema ve arayüz: `docs/OLED_GLASS_DESIGN.md`; telefon/saat pastel vurgu paleti, gerçek siyah, cam katmanları, tipografi ve eski tema tercihinin davranışı için aynı `docs/togg-companion` KB kullanılmalıdır.
 
 - Canlı One UI widget tasarımı: `docs/WIDGET_ONE_UI_DESIGN.md`; widgeta özel mavi/mint palet ve batarya kırmızı/amber/mavi/yeşil eşikleri, gerçek siyah yüzey ve okunabilirlik için aynı KB içindeki U6 mahallesini kullanın.
+
+- Kullanım ve geliştirme devri: `docs/AGENT_HANDOFF.md`; kurulum, değişiklik gerekçeleri, dosya haritası, teslim süreci ve manuel doğrulama sınırları.

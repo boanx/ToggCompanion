@@ -285,6 +285,10 @@ public class SmartAccessSessionTest {
             session = new SmartAccessSession(SmartAccessCertificate.parse(certificate, 0),
                     cached ? samPublicKey : null, data -> sign(phone, data), events, events);
             session.start();
+            // Production now initiates the exchange; verify and consume that first request
+            // before the simulated SAM starts answering it.
+            assertRequest(events.onlyFrame(), 0x10, cached ? 2 : 0, 0, 1);
+            events.clearFrames();
         }
         void request(int id, int state, int length, long nextBlock) {
             session.receive(SmartAccessProtocol.encodeRequest(id,

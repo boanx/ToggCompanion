@@ -46,7 +46,7 @@ public class SmartAccessCertificateTest {
     @Test public void malformedOrUnmappedSchemasNeverGrantAccess() {
         byte[] bytes = fixture(); bytes[0] = 0;
         try { SmartAccessCertificate.parse(bytes, 0); fail("Legacy schema has unverified permissions"); } catch (IllegalArgumentException expected) { }
-        bytes = fixture(); bytes[36] = 13;
+        bytes = fixture(); bytes[37] = 13;
         try { SmartAccessCertificate.parse(bytes, 0); fail("Invalid month"); } catch (IllegalArgumentException expected) { }
         bytes = fixture(); bytes[48] = 2;
         try { SmartAccessCertificate.parse(bytes, 0); fail("Invalid permission boolean"); } catch (IllegalArgumentException expected) { }
@@ -85,7 +85,7 @@ public class SmartAccessCertificateTest {
     }
 
     private static void date(byte[] bytes, int offset, int year, int month, int day, int hour, int minute) {
-        bytes[offset] = (byte) hour; bytes[offset + 1] = (byte) minute; bytes[offset + 2] = (byte) month; bytes[offset + 3] = (byte) day;
+        bytes[offset] = (byte) hour; bytes[offset + 1] = (byte) minute; bytes[offset + 2] = (byte) day; bytes[offset + 3] = (byte) month;
         bytes[offset + 4] = (byte) year; bytes[offset + 5] = (byte) (year >> 8);
     }
 }

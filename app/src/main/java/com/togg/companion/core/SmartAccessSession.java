@@ -34,7 +34,7 @@ public final class SmartAccessSession {
     private volatile boolean ready, closed;
     private volatile SmartAccessProtocol.RawStatus status;
     private SmartAccessProtocol.CarCommand command;
-    private boolean commandSent, commandAcknowledged, awaitingCarKey;
+    private boolean commandSent, commandAcknowledged, awaitingCarKey, started;
 
     public SmartAccessSession(SmartAccessCertificate certificate, byte[] pinnedCarKey,
                               Signer signer, Transport transport, Listener listener) {
@@ -49,7 +49,25 @@ public final class SmartAccessSession {
     }
 
     public void start() {
-        listener.onStage("Araç sertifika isteği bekleniyor. Araçtaki erişim cihazları ekranını açın.");
+        start(true);
+    }
+    public void start(boolean initiateExchange) {
+        if (closed || started) return;
+        started = true;
+        // A certificate request received while provisioning is replayed by the
+        // manager. Do not initiate a second exchange ahead of that request.
+        if (!initiateExchange) {
+            listener.onStage("Alınmış araç sertifika isteği işleniyor.");
+            return;
+        }
+        // Original 0x2296184 actively starts the exchange: request the SAM key
+        // when unpinned, or signal the cached-key path. Waiting here deadlocks.
+        incomingRequest = SmartAccessProtocol.REQUEST_USER_CERTIFICATE;
+        awaitingCarKey = carKey.length == 0;
+        listener.onStage("Araç anahtarı ve sertifika alışverişi başlatılıyor.");
+        transport.send(SmartAccessProtocol.encodeRequest(incomingRequest,
+                awaitingCarKey ? SmartAccessProtocol.RequestState.FIRST_PACK_WAITING
+                        : SmartAccessProtocol.RequestState.PACK_COMPLETE, 0, 1));
     }
 
     public boolean isReady() { return ready && !closed && certificate.isValidAt(System.currentTimeMillis()); }
@@ -133,7 +151,13 @@ public final class SmartAccessSession {
             throw new IllegalArgumentException("Gönderilmiş mesajı olmayan araç tam mesaj onayı.");
         int total = 0;
         for (byte[] packet : outgoing) total += packet.length - 8;
-        if (frame.rawIuu != total || frame.rawJuu != 0 || outgoingBlock != outgoing.size())
+        // Observed SAM certificate-complete ACK uses zero rather than total
+        // length. Only accept it for the fully sent active certificate exchange;
+        // this ACK does not establish authentication or command success.
+        boolean certificateZeroLength = frame.commandId == SmartAccessProtocol.REQUEST_USER_CERTIFICATE
+                && frame.rawIuu == 0;
+        if ((frame.rawIuu != total && !certificateZeroLength)
+                || frame.rawJuu != 0 || outgoingBlock != outgoing.size())
             throw new IllegalArgumentException("Araç tam mesaj onayı eşleşmiyor.");
         outgoing = null;
         if (frame.commandId == SmartAccessProtocol.REQUEST_USER_CERTIFICATE) {
@@ -187,7 +211,7 @@ public final class SmartAccessSession {
         byte[] data = message.payload();
         switch (message.commandId) {
             case SmartAccessProtocol.USER_CERTIFICATE_MSG:
-                if (!certificateAccepted || !awaitingCarKey || phoneProofAccepted
+                if (!started || !awaitingCarKey || phoneProofAccepted
                         || (data.length != 64 && data.length != 65))
                     throw new IllegalArgumentException("Araç public key mesajı geçersiz.");
                 SmartAccessKeyStore.normalizePublicKey(data);

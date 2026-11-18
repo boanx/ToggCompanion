@@ -33,11 +33,11 @@ Always read this file before loading any feature KB.
 
 - Smart Access provisioning/session/manual verification: `docs/SMART_ACCESS_IMPLEMENTATION.md`; use for AndroidKeyStore, authenticated certificate API contracts, BLE handshake/status/ACK decoding, manual setup and safe diagnostic feedback. Tests: `SmartAccessKeyStoreTest`, `SmartAccessCertificateTest`, `SmartAccessProtocolTest`, `SmartAccessSessionTest`, `SmartAccessCertificateClientTest`.
 
-- Doğrudan araç rota aktarımı: `docs/DIRECT_VEHICLE_ROUTE_TRANSFER.md`; cloud-only PlannedJourneys gönderimi, manuel hedef/rota önizleme, HTTP sonuçları, hesap/araç bağlamı ve araç ekranı tesliminin doğrulama sınırı için kullanın. HTTP 301 ve doğru navigasyon API alan adı için `docs/HTTP301_ROUTE_FIX.md` düzeltmesini de okuyun.
+- Google adres/link çözümleme ve doğrudan araç rota aktarımı: `docs/DIRECT_VEHICLE_ROUTE_TRANSFER.md`; 25 Ekim Companions DELETE→POST araç paylaşımı ve tarihsel PlannedJourneys kaydı ayrımı, manuel hedef/rota önizleme, HTTP sonuçları (16Kasım kabul/doğrulandı/belirsiz/hata ayrımı AF291–AF292), hesap/araç bağlamı ve araç ekranı tesliminin doğrulama sınırı için kullanın. 16 Kasım encoded/wrapper/canonical link ve viewport-hedef ayrımı için AF289–AF290/F61–F62. HTTP 301 ve doğru navigasyon API alan adı için `docs/HTTP301_ROUTE_FIX.md` düzeltmesini de okuyun.
 
-- Güncel kaynak/APK durumu ve geliştirme notları: `docs/PROJECT_STATUS_2026_10_12.md`; derleme kısıtı, manuel doğrulama sınırları ve sıradaki ABRP aşaması için başlangıç belgesi.
+- Güncel kaynak/APK durumu ve geliştirme notları: `docs/PROJECT_STATUS_2026_10_12.md`; 18 Kasım1.1/kod2şarj durum regresyonu paketi (AF314;önceki güç/tanı paketi AF311), derleme kısıtı ve fiziksel doğrulama sınırları için başlangıç belgesi.
 
-- ABRP otomatik rota: `docs/ABRP_AUTOMATIC_ROUTE_SYNC.md`; değişiklik imzası, yaklaşık 4 dakikalık kontrol, gelecek hedeflerin origin/waypoint ayrımı, belirsiz sonuçta tekrar önleme ve ayar akışı için kullanın.
+- Yol Tarifi sekmesi, ABRP senkronizasyonu ve paylaşılabilir günlükler: `docs/ABRP_SYNC.md`; F99–F105/F108–F111 ve AF268–AF272/AF279–AF282. Bir dakikalık kullanıcı başlatımlı arka plan telemetri servisi, Ayarlar sekmesi, veri tazeliği ve Android süre sınırları. `docs/ABRP_AUTOMATIC_ROUTE_SYNC.md` yalnız tarihsel kayıttır; otomatik rota özelliği kaldırıldı.
 
 ## Cross-Feature Dependencies
 
@@ -49,6 +49,26 @@ None registered yet.
 
 - OLED Glass tema ve arayüz: `docs/OLED_GLASS_DESIGN.md`; telefon/saat pastel vurgu paleti, gerçek siyah, cam katmanları, tipografi ve eski tema tercihinin davranışı için aynı `docs/togg-companion` KB kullanılmalıdır.
 
-- Canlı One UI widget tasarımı: `docs/WIDGET_ONE_UI_DESIGN.md`; widgeta özel mavi/mint palet ve batarya kırmızı/amber/mavi/yeşil eşikleri, gerçek siyah yüzey ve okunabilirlik için aynı KB içindeki U6 mahallesini kullanın.
+- Widget harita kaydı ve canlı One UI widget tasarımı: `docs/WIDGET_ONE_UI_DESIGN.md`; 16 Kasım yanlış pencere görüntüsü/araç-konum önbelleği düzeltmesi AF288–AF290/F112–F113; widgeta özel mavi/mint palet ve batarya kırmızı/amber/mavi/yeşil eşikleri, gerçek siyah yüzey ve okunabilirlik için aynı KB içindeki U6 mahallesini kullanın. Araç snapshot zamanı ve JobService ile manuel widget yenilemesi için AF273–AF275/F106–F107; genişletilmiş ABRP aç/kapat ve yükseklik varyantları için AF280–AF282/F109–F111.
 
 - Kullanım ve geliştirme devri: `docs/AGENT_HANDOFF.md`; kurulum, değişiklik gerekçeleri, dosya haritası, teslim süreci ve manuel doğrulama sınırları.
+
+- Smart Access sertifika hataları/tanısı: `docs/SMART_ACCESS_CERTIFICATE_DIAGNOSTICS.md`; HTTP500, Base64/schema hata ayrımı ve GATT aşama kayıtları için C10 mahallesi.
+
+- Smart Access ilk kayıt ve davet kabulü: `docs/SMART_ACCESS_ENROLLMENT_RESEARCH.md`; resmi araç onayı, owner/shared boolean düzeltmesi, ShareProcess alanları ve eksik entegrasyon planı için C10.
+
+- Orijinal Trumore sürüm karşılaştırması: `docs/TRUMORE_2_1_26_COMPARISON.md`; 2.1.25/661 ile telefondan alınan 2.1.26/663 paket farkları, ham AOT literal adresleri, widget/saat hazırlığı ve doğrulanmamış sözleşmeler için aynı KB'nin C10/C9/U6 mahalleleri.
+
+- Mevcut Trumore anahtarını koruyan ayrı hesap/paylaşım hazırlığı: `docs/SMART_ACCESS_SHARED_ACCOUNT_PREPARATION.md`; canlı OverwriteDetection, eksik ClaimCarToUser adımı, davet seId/no imza zinciri ve guest oturum ayrımı için C10. 21 Ekim güncel bölümünde davet kabulü, manuel sahip onayı ve canlı doğrulanmış guest sertifika kaydı vardır; BLE oturumu/komutları henüz doğrulanmadı.
+
+- Paylaşılan hesap girişi ve davet önizlemesi: aynı F96/C10 rotası; SmartAccessAccountStorage ana telemetri oturumundan bağımsızdır. SmartAccessInvitationClient sessionDetail, imzalı ReplyToSession ve isOwner=false sertifika almayı uygular; VehicleBleManager ayrı guest PhoneKey bağlamını kullanır.
+
+- Ana sayfa kart sırası ve toplam kilometre: `docs/HOME_LAYOUT_AND_ODOMETER.md`; AF293–AF295/F114–F116. Geniş kartların kayıtlı konumu, görünürlük/geçiş, gerçek odometre birimi ve bulut güncelliği sınırı için U1/C1 mahalleleri.
+
+- Yolculuk süresi/birimleri: `docs/TRIP_DURATION.md`; AF298–AF299/F02/F31/F117. Dakika10a-bölme hatası, saat+bileşen/total ayrımı ve eski cache sınırları için C1/T1.
+
+- Sürüş modu gösterimi: `docs/DRIVE_MODE_DISPLAY.md`; AF301–AF302/F118–F120. Eksik veride Konfor varsayımının kaldırılması,metinsel enum/unknown ve son bulut verisi sınırı için C1/U1.
+
+- Google Drive / ajan için yalnız toplam kilometre JSON paylaşımı: `docs/ODOMETER_JSON_EXPORT.md`; C11/F121–F126/AF303–AF305. Ayarlar ekranı, SAF tek-belge izni, kullanıcı başlangıç/aralık seçimi, persisted JobScheduler ve araç veri zamanı; gerçek Drive eşitlemesi/Gemini dosya okuması henüz doğrulanmadı. Aynı birincil KB kullanılır.
+
+- Şarj gücü ve sabit11kW hatası: `docs/CHARGING_POWER.md`; C1/U1/U4/F127–F129/AF307–AF313. AC11/DC120 varsayımlarının kaldırılması, gerçek0 ile bilinmeyen-1 ayrımı, tür/güç etiketleri, ölçüm yoksa yalnız Şarj oluyor, CHARGING alan/değer tanısı ve kaynak/APK/cache sınırı; 18Kasım CHRGMODE_CHARGE/metinsel durum regresyonu için kullanın.

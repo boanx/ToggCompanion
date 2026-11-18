@@ -21,6 +21,7 @@ import android.widget.TextView;
 
 import com.togg.companion.R;
 import com.togg.companion.core.GezRouteBridge;
+import com.togg.companion.core.AppLog;
 import com.togg.companion.data.SecureTokenStorage;
 
 import java.util.Locale;
@@ -43,6 +44,7 @@ public final class VehicleRouteDialog {
     private boolean resolving;
     private boolean sending;
     private boolean accepted;
+    private enum Outcome { VERIFIED, ACCEPTED, UNCERTAIN, FAILED }
 
     public static AlertDialog show(Activity activity, SecureTokenStorage storage, String prefill) {
         return new VehicleRouteDialog(activity, storage, prefill).open();
@@ -152,7 +154,7 @@ public final class VehicleRouteDialog {
             @Override public void onError(String error) {
                 if (!active() || requestGeneration != generation) return;
                 resolving = false; resolveButton.setEnabled(true); progress.setVisibility(View.GONE);
-                status.setText(error); updateSendButton();
+                status.setText(AppLog.userMessage(activity, "ROUTE", error, "Hedef bulunamadı. Bağlantıyı veya adresi kontrol edin.")); updateSendButton();
             }
         });
     }
@@ -195,23 +197,35 @@ public final class VehicleRouteDialog {
         GezRouteBridge.dispatchToVehicleCloud(activity.getApplicationContext(), storage, route,
                 new GezRouteBridge.CloudCallback() {
                     @Override public void onSuccess(String message) {
-                        activity.runOnUiThread(() -> complete(true, message));
+                        activity.runOnUiThread(() -> complete(Outcome.VERIFIED, message));
+                    }
+                    @Override public void onAccepted(String message) {
+                        activity.runOnUiThread(() -> complete(Outcome.ACCEPTED, message));
+                    }
+                    @Override public void onUncertain(String message) {
+                        activity.runOnUiThread(() -> complete(Outcome.UNCERTAIN, message));
                     }
                     @Override public void onError(String message) {
-                        activity.runOnUiThread(() -> complete(false, message));
+                        activity.runOnUiThread(() -> complete(Outcome.FAILED, message));
                     }
                 });
     }
 
-    private void complete(boolean success, String message) {
+    private void complete(Outcome outcome, String message) {
         sending = false;
+        AppLog.event(activity, "ROUTE", outcome.name() + " " + message);
         if (!active()) return;
-        accepted = success;
+        accepted = outcome == Outcome.VERIFIED || outcome == Outcome.ACCEPTED;
         progress.setVisibility(View.GONE);
         setEditingEnabled(true);
         dialog.setCancelable(true);
         dialog.getButton(AlertDialog.BUTTON_NEGATIVE).setEnabled(true);
-        status.setText(message + (success ? "\nAraç ekranındaki hedefi kontrol edin. Yeni hedef girebilir veya bu pencereyi kapatabilirsiniz." : "\nHedefiniz korundu. Sorunu giderip yeniden deneyebilirsiniz."));
+        switch (outcome) {
+            case VERIFIED: status.setText("Hedef kaydedildi. Araç ekranındaki hedefi kontrol edin."); break;
+            case ACCEPTED: status.setText("Hedef gönderim için kabul edildi. Araç ekranındaki hedefi kontrol edin."); break;
+            case UNCERTAIN: status.setText("Gönderim sonucu alınamadı. Hedef ulaşmış olabilir; yeniden göndermeden önce araç ekranını kontrol edin. Hedefiniz korundu."); break;
+            default: status.setText("Hedef gönderilemedi. Bağlantınızı ve hesabınızı kontrol edip yeniden deneyin. Hedefiniz korundu.");
+        }
         updateSendButton();
     }
 
@@ -221,7 +235,7 @@ public final class VehicleRouteDialog {
         if (!dialog.isShowing()) return;
         Button send = dialog.getButton(AlertDialog.BUTTON_POSITIVE);
         send.setEnabled(!sending && !resolving && !accepted && selected != null && canSend());
-        send.setText(sending ? "Gönderiliyor…" : accepted ? "Bulut kabul etti" : "Akıllı cihazıma aktar");
+        send.setText(sending ? "Gönderiliyor…" : accepted ? "Gönderim kabul edildi" : "Akıllı cihazıma aktar");
     }
     private void setEditingEnabled(boolean enabled) {
         input.setEnabled(enabled); resolveButton.setEnabled(enabled);

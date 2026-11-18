@@ -7,7 +7,6 @@ import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
 import android.graphics.Bitmap;
-import android.graphics.BitmapFactory;
 import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.Paint;
@@ -27,7 +26,6 @@ import com.togg.companion.core.TelemetryParser;
 import com.togg.companion.core.VehicleTelemetry;
 import com.togg.companion.data.SecureTokenStorage;
 import com.togg.companion.data.TelemetryDatabaseHelper;
-import com.togg.companion.data.remote.TvaApiClient;
 import com.togg.companion.ui.MainActivity;
 
 import java.text.SimpleDateFormat;
@@ -35,7 +33,6 @@ import java.util.Date;
 import java.util.Locale;
 import java.util.HashMap;
 import java.util.Map;
-import java.io.File;
 
 public final class ToggAppWidgetProvider extends AppWidgetProvider {
     public static final String ACTION_REFRESH = "com.togg.companion.widget.REFRESH";
@@ -52,48 +49,11 @@ public final class ToggAppWidgetProvider extends AppWidgetProvider {
         super.onReceive(context, intent);
         if (intent == null || !ACTION_REFRESH.equals(intent.getAction())) return;
 
-        AppWidgetManager manager = AppWidgetManager.getInstance(context);
-        int[] ids = manager.getAppWidgetIds(new ComponentName(context, ToggAppWidgetProvider.class));
-        for (int id : ids) {
-            RemoteViews views = new RemoteViews(context.getPackageName(), R.layout.widget_togg);
-            views.setTextViewText(R.id.widget_updated, "Yenileniyor... ");
-            manager.partiallyUpdateAppWidget(id, views);
+        // Hand network work to Android; a broadcast must not wait for HTTP/token refresh.
+        if (!WidgetRefreshJobService.request(context)) {
+            com.togg.companion.core.AppLog.event(context, "WIDGET", "REFRESH_SCHEDULE_FAILED");
+            android.widget.Toast.makeText(context, "Araç verisi yenilemesi başlatılamadı. Yeniden deneyin.", android.widget.Toast.LENGTH_SHORT).show();
         }
-
-        final PendingResult result = goAsync();
-        Context appContext = context.getApplicationContext();
-        new Thread(() -> {
-            try {
-                SecureTokenStorage storage = new SecureTokenStorage(appContext);
-                TelemetryDatabaseHelper dbHelper = new TelemetryDatabaseHelper(appContext);
-                TvaApiClient apiClient = new TvaApiClient(storage);
-                apiClient.fetchTelemetry(new TvaApiClient.TelemetryCallback() {
-                    private void persistAndUpdate(VehicleTelemetry telemetry) {
-                        try {
-                            if (telemetry != null) {
-                                dbHelper.insert(telemetry);
-                                storage.saveActiveTelemetry(telemetry);
-                                if (telemetry.timestampMillis > 0) storage.setLastSync(telemetry.timestampMillis);
-                            }
-                            storage.setLastRefresh(System.currentTimeMillis());
-                            updateAllWidgets(appContext);
-                        } finally {
-                            result.finish();
-                        }
-                    }
-
-                    @Override public void onSuccess(VehicleTelemetry telemetry, boolean isLive) {
-                        persistAndUpdate(telemetry);
-                    }
-
-                    @Override public void onError(String message, VehicleTelemetry fallback) {
-                        persistAndUpdate(fallback);
-                    }
-                });
-            } catch (Exception ignored) {
-                try { updateAllWidgets(appContext); } finally { result.finish(); }
-            }
-        }, "ToggWidgetRefresh").start();
     }
 
     public static void updateAllWidgets(Context context) {
@@ -110,12 +70,16 @@ public final class ToggAppWidgetProvider extends AppWidgetProvider {
         Bundle options = suppliedOptions != null ? suppliedOptions : manager.getAppWidgetOptions(id);
         int minWidth = options != null ? options.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_WIDTH, 0) : 0;
         int minHeight = options != null ? options.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_HEIGHT, 0) : 0;
-        boolean expanded = minHeight >= 70;
+        boolean expanded = minHeight >= 160;
         int level = minWidth >= 310 || minWidth == 0 ? 0 : minWidth >= 240 ? 1 : 2;
         RemoteViews views = new RemoteViews(context.getPackageName(), R.layout.widget_togg);
         SecureTokenStorage storage = new SecureTokenStorage(context);
         VehicleTelemetry t = storage.getActiveTelemetry(context);
-        if (t == null) t = new TelemetryDatabaseHelper(context).getLatest();
+        if (t == null) {
+            try (TelemetryDatabaseHelper db = new TelemetryDatabaseHelper(context)) { t = db.getLatest(); }
+        }
+        if (t != null && !storage.getVin().equalsIgnoreCase(t.vin)) t = null;
+        boolean vehicleData = t != null && !storage.isDemoMode() && !storage.isDemoVin();
         if (t == null) t = TelemetryParser.createDemoSnapshot(storage.getVin(), storage.getPlate());
         if (storage.hasSavedLocation()) {
             t = t.withLocation(storage.getLastLat(), storage.getLastLon(), storage.getLastAddress());
@@ -156,7 +120,7 @@ public final class ToggAppWidgetProvider extends AppWidgetProvider {
         views.setTextViewText(R.id.widget_coords, hasLocation
                 ? String.format(Locale.US, "%.5f, %.5f", lat, lon) : "Konum yok");
         try {
-            long vehicleSync = t.timestampMillis > 0 ? t.timestampMillis : storage.getLastSync();
+            long vehicleSync = vehicleData ? t.timestampMillis : 0L;
             String mapTime = vehicleSync > 0
                     ? new SimpleDateFormat("d MMMM yyyy - HH:mm", new Locale("tr", "TR")).format(new Date(vehicleSync)) : "--:--";
             views.setImageViewBitmap(R.id.widget_map_view, createMapPreviewBitmap(context, lat, lon, mapTime));
@@ -179,11 +143,14 @@ public final class ToggAppWidgetProvider extends AppWidgetProvider {
         views.setOnClickPendingIntent(R.id.widget_location_container, mapPending);
         views.setOnClickPendingIntent(R.id.widget_map_view, mapPending);
 
-        long lastRef = storage.getLastRefresh();
-        if (lastRef <= 0) lastRef = t.timestampMillis;
-        String timeStr = lastRef > 0
-                ? new SimpleDateFormat("HH:mm", Locale.getDefault()).format(new Date(lastRef)) : "--:--";
+        // This is the vehicle snapshot's own time, never the app/network refresh time.
+        long vehicleTime = vehicleData ? t.timestampMillis : 0L;
+        String timeStr = vehicleTime > 0
+                ? new SimpleDateFormat("d MMM HH:mm", Locale.getDefault()).format(new Date(vehicleTime)) : "--";
         views.setTextViewText(R.id.widget_updated, "Son Veri: " + timeStr);
+        boolean refreshing = WidgetRefreshJobService.isRefreshing(context);
+        views.setContentDescription(R.id.widget_refresh, refreshing ? "Araç telemetrisi yenileniyor" : "Araç telemetrisini yenile");
+        views.setInt(R.id.widget_refresh, "setImageAlpha", refreshing ? 130 : 255);
         if (level == 2) {
             views.setViewVisibility(R.id.widget_charge_container, View.VISIBLE);
             views.setViewVisibility(R.id.widget_12v_battery_view, View.GONE);
@@ -208,6 +175,24 @@ public final class ToggAppWidgetProvider extends AppWidgetProvider {
         }
         views.setViewVisibility(R.id.widget_expanded_section, expanded ? View.VISIBLE : View.GONE);
 
+        boolean abrpActive = storage.isAbrpEnabled() && com.togg.companion.service.AbrpSyncService.isRunning();
+        views.setTextViewText(R.id.widget_abrp_toggle, "ABRP Senkronizasyonu");
+        views.setInt(R.id.widget_abrp_toggle, "setBackgroundResource", abrpActive ? R.drawable.bg_widget_abrp_active : R.drawable.bg_widget_abrp_inactive);
+        views.setTextColor(R.id.widget_abrp_toggle, abrpActive ? 0xFF071A13 : 0xFFADB8C4);
+        views.setContentDescription(R.id.widget_abrp_toggle, abrpActive ? "ABRP Senkronizasyonu aktif. Kapatmak için dokunun." : "ABRP Senkronizasyonu deaktif. Açmak için dokunun.");
+        boolean configured = storage.hasValidToken() && !storage.isDemoMode() && !storage.isDemoVin() && !storage.getAbrpToken().isEmpty();
+        PendingIntent abrpToggle;
+        if (configured || abrpActive) {
+            abrpToggle = PendingIntent.getBroadcast(context, id + 30000,
+                    new Intent(context, AbrpWidgetToggleReceiver.class), PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+        } else {
+            abrpToggle = PendingIntent.getActivity(context, id + 30000,
+                    new Intent(context, MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP)
+                            .putExtra(MainActivity.EXTRA_DIRECTIONS, true), PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+        }
+        views.setOnClickPendingIntent(R.id.widget_abrp_toggle, abrpToggle);
+        views.setViewVisibility(R.id.widget_abrp_row, minHeight >= 250 ? View.VISIBLE : View.GONE);
+
         Intent open = new Intent(context, MainActivity.class);
         PendingIntent openPending = PendingIntent.getActivity(context, id, open,
                 PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
@@ -218,14 +203,17 @@ public final class ToggAppWidgetProvider extends AppWidgetProvider {
         views.setOnClickPendingIntent(R.id.widget_refresh, refreshPending);
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             Map<SizeF, RemoteViews> variants = new HashMap<>();
-            variants.put(new SizeF(170f, 70f), viewsForLevel(context, views, 2));
-            variants.put(new SizeF(240f, 70f), viewsForLevel(context, views, 1));
-            variants.put(new SizeF(310f, 70f), viewsForLevel(context, views, 0));
+            for (int width : new int[]{170, 240, 310}) {
+                int variantLevel = width >= 310 ? 0 : width >= 240 ? 1 : 2;
+                for (int height : new int[]{70, 160, 250})
+                    variants.put(new SizeF(width, height), viewsForLevel(context, views, variantLevel, height));
+            }
             manager.updateAppWidget(id, new RemoteViews(variants));
         } else manager.updateAppWidget(id, views);
     }
 
-    private static RemoteViews viewsForLevel(Context context, RemoteViews source, int level) {
+    @androidx.annotation.RequiresApi(31)
+    private static RemoteViews viewsForLevel(Context context, RemoteViews source, int level, int height) {
         RemoteViews variant = new RemoteViews(source);
         variant.setViewVisibility(R.id.widget_charge_container, View.VISIBLE);
         variant.setViewVisibility(R.id.widget_hv_battery_view, View.VISIBLE);
@@ -234,13 +222,11 @@ public final class ToggAppWidgetProvider extends AppWidgetProvider {
         variant.setViewVisibility(R.id.widget_tires_cross, level == 0 || level == 1 ? View.VISIBLE : View.GONE);
         variant.setViewVisibility(R.id.widget_address_container, level == 0 || level == 1 ? View.VISIBLE : View.GONE);
         variant.setViewVisibility(R.id.widget_map_view, View.VISIBLE);
-        variant.setViewVisibility(R.id.widget_expanded_section, View.VISIBLE);
+        variant.setViewVisibility(R.id.widget_expanded_section, height >= 160 ? View.VISIBLE : View.GONE);
         variant.setTextViewTextSize(R.id.widget_location_title, TypedValue.COMPLEX_UNIT_SP, level == 1 ? 9.5f : 11.5f);
         variant.setTextViewTextSize(R.id.widget_address, TypedValue.COMPLEX_UNIT_SP, level == 1 ? 9.5f : 11.5f);
         variant.setTextViewTextSize(R.id.widget_coords, TypedValue.COMPLEX_UNIT_SP, level == 1 ? 8.5f : 10f);
-        if (level == 2) {
-            variant.setViewVisibility(R.id.widget_expanded_section, View.VISIBLE);
-        }
+        variant.setViewVisibility(R.id.widget_abrp_row, height >= 250 ? View.VISIBLE : View.GONE);
         return variant;
     }
 
@@ -356,25 +342,20 @@ public final class ToggAppWidgetProvider extends AppWidgetProvider {
     private static Bitmap createMapPreviewBitmap(Context context, double lat, double lon, String timeStr) {
         Bitmap bitmap = Bitmap.createBitmap(280, 140, Bitmap.Config.ARGB_8888);
         Canvas canvas = new Canvas(bitmap);
-        File snapshotFile = new File(context.getFilesDir(), "widget_map_snapshot.png");
         boolean hasSnapshot = false;
-        if (snapshotFile.exists() && snapshotFile.length() > 500) {
-            try {
-                Bitmap snap = BitmapFactory.decodeFile(snapshotFile.getAbsolutePath());
-                if (snap != null) {
-                    Rect src = new Rect(0, 0, snap.getWidth(), snap.getHeight());
-                    Rect dst = new Rect(0, 0, 280, 140);
-                    Paint snapshotPaint = new Paint(Paint.FILTER_BITMAP_FLAG);
-                    android.graphics.ColorMatrix grayMap = new android.graphics.ColorMatrix();
-                    grayMap.setSaturation(0f);
-                    snapshotPaint.setColorFilter(new android.graphics.ColorMatrixColorFilter(grayMap));
-                    canvas.drawBitmap(snap, src, dst, snapshotPaint);
-                    Paint scrim = new Paint(); scrim.setColor(0x33000000);
-                    canvas.drawRect(0, 0, 280, 140, scrim);
-                    hasSnapshot = true;
-                    snap.recycle();
-                }
-            } catch (Throwable ignored) {}
+        Bitmap snap = WidgetMapSnapshotStore.load(context, new SecureTokenStorage(context).getVin(), lat, lon);
+        if (snap != null) {
+            Rect src = new Rect(0, 0, snap.getWidth(), snap.getHeight());
+            Rect dst = new Rect(0, 0, 280, 140);
+            Paint snapshotPaint = new Paint(Paint.FILTER_BITMAP_FLAG);
+            android.graphics.ColorMatrix grayMap = new android.graphics.ColorMatrix();
+            grayMap.setSaturation(0f);
+            snapshotPaint.setColorFilter(new android.graphics.ColorMatrixColorFilter(grayMap));
+            canvas.drawBitmap(snap, src, dst, snapshotPaint);
+            Paint scrim = new Paint(); scrim.setColor(0x33000000);
+            canvas.drawRect(0, 0, 280, 140, scrim);
+            hasSnapshot = true;
+            snap.recycle();
         }
         if (!hasSnapshot) {
             drawRadarFallback(canvas, lat, lon);

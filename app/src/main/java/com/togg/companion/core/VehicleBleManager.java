@@ -24,6 +24,7 @@ import android.os.ParcelUuid;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
+import java.util.HashSet;
 import java.util.UUID;
 import java.lang.reflect.Method;
 import java.util.function.Consumer;
@@ -36,6 +37,7 @@ import org.json.JSONObject;
 import androidx.security.crypto.EncryptedSharedPreferences;
 import androidx.security.crypto.MasterKey;
 import com.togg.companion.data.SecureTokenStorage;
+import com.togg.companion.data.SmartAccessAccountStorage;
 import com.togg.companion.data.remote.SmartAccessCertificateClient;
 
 /** Paired-device BLE connection and explicit command feedback boundary. */
@@ -67,15 +69,19 @@ public final class VehicleBleManager {
     private ConnectionState state = ConnectionState.DISCONNECTED;
     private boolean demoConnected;
     private String deviceName;
+    // Discovery evidence only; command authorization still requires the signed session.
+    private final Set<BluetoothDevice> smartAccessServiceDevices = new HashSet<>();
     private VehicleTelemetry telemetry;
     private final SecureTokenStorage storage;
     private final SmartAccessKeyStore keyStore;
     private final SmartAccessCertificateClient certificateClient;
+    private final SmartAccessAccountStorage guestAccount;
     private final SharedPreferences trustPrefs;
     private final List<OnAccessStateChangeListener> accessListeners = new ArrayList<>();
     private final ArrayDeque<String> diagnostics = new ArrayDeque<>();
     private final ArrayDeque<byte[]> writeQueue = new ArrayDeque<>();
     private final ArrayDeque<byte[]> deferredFrames = new ArrayDeque<>();
+    private final ArrayDeque<BluetoothGattCharacteristic> notificationQueue = new ArrayDeque<>();
     private volatile AccessState accessState = AccessState.DISCONNECTED;
     private volatile String accessStatus = "BLE bağlı değil.";
     private volatile String lastCommandResult = "Henüz komut denenmedi.";
@@ -94,6 +100,7 @@ public final class VehicleBleManager {
         storage = new SecureTokenStorage(appContext);
         keyStore = new SmartAccessKeyStore(appContext);
         certificateClient = new SmartAccessCertificateClient(appContext, storage);
+        guestAccount = new SmartAccessAccountStorage(appContext);
         SharedPreferences prefs;
         try {
             MasterKey master = new MasterKey.Builder(appContext).setKeyScheme(MasterKey.KeyScheme.AES256_GCM).build();
@@ -158,9 +165,41 @@ public final class VehicleBleManager {
         return trustPrefs != null && storage.hasValidToken()
                 && currentAccount().equals(trustPrefs.getString("account", ""))
                 && storage.getVin().equals(trustPrefs.getString("vin", ""))
+                && (!trustPrefs.getBoolean("guest_phone_key", false)
+                    || guestAccount.getSubject().equals(trustPrefs.getString("tru_id", "")) && !guestAccount.getSubject().isEmpty())
                 ? trustPrefs.getString("tru_id", "") : "";
     }
     public String getSuggestedTruId() { return certificateClient.getSuggestedTruId(storage.getVin()); }
+
+    public void useSharedCertificate(SmartAccessCertificate value, AccessCallback callback) {
+        main.post(() -> {
+            try {
+                if (writeBusy || commandPending) throw new IllegalStateException("Önce devam eden BLE işleminin tamamlanmasını bekleyin.");
+                if (trustPrefs == null || storage.isDemoMode() || !storage.hasValidToken())
+                    throw new IllegalStateException("Gerçek ana hesap oturumu ve güvenli Smart Access kaydı gerekli.");
+                String guest = guestAccount.getSubject();
+                if (value == null || value.isOwner || guest.isEmpty()
+                        || !value.isValidFor(guest, storage.getVin(), keyStore.getPhonePublicKey(guest)))
+                    throw new IllegalArgumentException("Paylaşılan sertifika bu hesap, seçili araç ve telefon anahtarıyla eşleşmiyor.");
+                clearSession("Paylaşılan sertifikaya geçiliyor.");
+                ++setupGeneration;
+                if (!trustPrefs.edit().putString("tru_id", guest).putString("vin", value.vin)
+                        .putBoolean("owner", false).putBoolean("guest_phone_key", true)
+                        .putString("account", currentAccount()).commit())
+                    throw new IllegalStateException("Paylaşılan Smart Access bağlamı saklanamadı.");
+                certificate = value;
+                record("GUEST_CERTIFICATE_ACCEPTED");
+                if (isGattReady() && !isDemoConnected()) beginAuthentication(callback);
+                else {
+                    setAccessState(AccessState.TRANSPORT_READY, "Paylaşılan sertifika hazır. BLE bağlanıp oturumu açın.");
+                    accessReply(callback, true, "Paylaşılan sertifika doğrulandı. Araç yakınında BLE bağlantısı kurup kayıtlı anahtarla oturumu açın.");
+                }
+            } catch (Exception error) {
+                accessReply(callback, false, error instanceof IllegalArgumentException || error instanceof IllegalStateException
+                        ? error.getMessage() : "Paylaşılan telefon anahtarı okunamadı.");
+            }
+        });
+    }
 
     /** Public certificate metadata for the existing phone-relayed watch UI; no private key leaves AndroidKeyStore. */
     public DigitalKey getSmartAccessKeyMetadata() {
@@ -184,6 +223,7 @@ public final class VehicleBleManager {
             com.togg.companion.wearable.WearSyncManager.syncDigitalKey(appContext, getSmartAccessKeyMetadata());
     }
     private synchronized void record(String message) {
+        AppLog.event(appContext, "BLE", message);
         if (diagnostics.size() >= 80) diagnostics.removeFirst();
         diagnostics.addLast(System.currentTimeMillis() + " " + message);
     }
@@ -243,10 +283,10 @@ public final class VehicleBleManager {
             Set<BluetoothDevice> devices = a.getBondedDevices();
             for (BluetoothDevice device : devices) {
                 String name = device.getName();
-                if (matchesName(name)) matches.add(device);
+                if (hasSmartAccessServiceEvidence(device) || matchesName(name)) matches.add(device);
             }
         } catch (SecurityException ignored) { }
-        matches.sort((left, right) -> Boolean.compare(isDeviceConnected(right), isDeviceConnected(left)));
+        matches.sort((left, right) -> Integer.compare(discoveryRank(right), discoveryRank(left)));
         return matches;
     }
 
@@ -254,7 +294,28 @@ public final class VehicleBleManager {
         if (name == null) return false;
         String lower = name.toLowerCase(java.util.Locale.ROOT);
         return lower.contains("togg") || lower.contains("t10") || lower.contains("sda")
-                || lower.contains("trumore") || lower.contains("fastback") || lower.contains("smart");
+                || lower.contains("trumore") || lower.contains("fastback") || lower.contains("t-sas");
+    }
+
+    private synchronized boolean hasSmartAccessServiceEvidence(BluetoothDevice device) {
+        return smartAccessServiceDevices.contains(device);
+    }
+
+    private int discoveryRank(BluetoothDevice device) {
+        if (hasSmartAccessServiceEvidence(device)) return 2;
+        try {
+            String name = device.getName();
+            return name != null && name.toLowerCase(java.util.Locale.ROOT).contains("t-sas") ? 1 : 0;
+        } catch (SecurityException error) { return 0; }
+    }
+
+    public String getDiscoveryLabel(BluetoothDevice device) {
+        String name;
+        try { name = device.getName(); }
+        catch (SecurityException error) { name = null; }
+        if (name == null || name.trim().isEmpty()) name = "Adsız BLE cihazı";
+        return name + (hasSmartAccessServiceEvidence(device)
+                ? " [Smart Access servisi görüldü]" : " [Servis doğrulanmadı]");
     }
 
     /** Return matching BLE advertisements together with already bonded Togg devices. */
@@ -273,8 +334,15 @@ public final class VehicleBleManager {
             @Override public void onScanResult(int callbackType, ScanResult result) {
                 BluetoothDevice device = result.getDevice();
                 List<ParcelUuid> uuids = result.getScanRecord() == null ? null : result.getScanRecord().getServiceUuids();
-                if ((uuids != null && uuids.contains(new ParcelUuid(UUID_SERVICE_SMART_ACCESS)))
-                        || matchesName(device.getName())
+                boolean serviceAdvertised = uuids != null && uuids.contains(new ParcelUuid(UUID_SERVICE_SMART_ACCESS));
+                if (serviceAdvertised) {
+                    synchronized (VehicleBleManager.this) { smartAccessServiceDevices.add(device); }
+                }
+                String scannedName = null;
+                try { scannedName = device.getName(); }
+                catch (SecurityException revoked) { record("SCAN_NAME_PERMISSION_REVOKED"); }
+                if (serviceAdvertised
+                        || matchesName(scannedName)
                         || (result.getScanRecord() != null && matchesName(result.getScanRecord().getDeviceName()))) {
                     synchronized (matches) { if (!matches.contains(device)) matches.add(device); }
                 }
@@ -284,16 +352,23 @@ public final class VehicleBleManager {
             scanner.startScan(scan);
             main.postDelayed(() -> {
                 try { scanner.stopScan(scan); } catch (SecurityException ignored) { }
-                synchronized (matches) { callback.accept(new ArrayList<>(matches)); }
+                synchronized (matches) {
+                    matches.sort((left, right) -> Integer.compare(discoveryRank(right), discoveryRank(left)));
+                    callback.accept(new ArrayList<>(matches));
+                }
             }, 5000);
         } catch (SecurityException e) { main.post(() -> callback.accept(matches)); }
     }
 
     public boolean connectToPairedTogg(Context context) {
         List<BluetoothDevice> devices = getPairedToggDevices();
-        if (devices.isEmpty()) return false;
-        connectToVehicle(context, devices.get(0));
-        return true;
+        for (BluetoothDevice device : devices) {
+            if (hasSmartAccessServiceEvidence(device)) {
+                connectToVehicle(context, device);
+                return true;
+            }
+        }
+        return false;
     }
 
     public void connectToVehicle(Context context, BluetoothDevice device) {
@@ -310,6 +385,7 @@ public final class VehicleBleManager {
                 }
                 private void handleConnectionState(BluetoothGatt connection, int status, int newState) {
                     if (connection != gatt) return;
+                    record("GATT_STATE status=" + status + " state=" + newState);
                     if (status == BluetoothGatt.GATT_SUCCESS && newState == BluetoothProfile.STATE_CONNECTED) {
                         setState(ConnectionState.CONNECTING);
                         try {
@@ -341,6 +417,7 @@ public final class VehicleBleManager {
                 }
                 private void handleServicesDiscovered(BluetoothGatt connection, int status) {
                     if (connection != gatt) return;
+                    record("GATT_SERVICES status=" + status);
                     if (status != BluetoothGatt.GATT_SUCCESS) { failSmartAccessConnection(connection); return; }
                     BluetoothGattService service = connection.getService(UUID_SERVICE_SMART_ACCESS);
                     if (service == null) { failSmartAccessConnection(connection); return; }
@@ -351,40 +428,35 @@ public final class VehicleBleManager {
                     }
                     if (feedback == null) { failSmartAccessConnection(connection); return; }
                     synchronized (VehicleBleManager.this) { writeChar = command; feedbackChar = feedback; }
-                    {
-                        BluetoothGattDescriptor cccd = feedback.getDescriptor(UUID_CCCD);
-                        byte[] subscription = (feedback.getProperties() & BluetoothGattCharacteristic.PROPERTY_NOTIFY) != 0
-                                ? BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
-                                : (feedback.getProperties() & BluetoothGattCharacteristic.PROPERTY_INDICATE) != 0
-                                    ? BluetoothGattDescriptor.ENABLE_INDICATION_VALUE : null;
-                        try {
-                            if (subscription == null || cccd == null || !connection.setCharacteristicNotification(feedback, true)) { failSmartAccessConnection(connection); return; }
-                            if (Build.VERSION.SDK_INT >= 33) {
-                                if (connection.writeDescriptor(cccd, subscription) != BluetoothGatt.GATT_SUCCESS) { failSmartAccessConnection(connection); return; }
-                            } else {
-                                cccd.setValue(subscription);
-                                if (!connection.writeDescriptor(cccd)) { failSmartAccessConnection(connection); return; }
-                            }
-                        } catch (SecurityException e) { failSmartAccessConnection(connection); return; }
-                    }
+                    record("GATT_CHANNELS commandProps=" + command.getProperties() + " feedbackProps=" + feedback.getProperties());
+                    notificationQueue.clear();
+                    // Original connection setup subscribes separate session/status streams.
+                    // Some firmware exposes session responses on the writable characteristic.
+                    if ((command.getProperties() & (BluetoothGattCharacteristic.PROPERTY_NOTIFY
+                            | BluetoothGattCharacteristic.PROPERTY_INDICATE)) != 0)
+                        notificationQueue.add(command);
+                    notificationQueue.add(feedback);
+                    subscribeNext(connection);
                 }
                 @Override public void onDescriptorWrite(BluetoothGatt connection, BluetoothGattDescriptor descriptor, int status) {
                     main.post(() -> {
                         if (connection != gatt || !UUID_CCCD.equals(descriptor.getUuid())) return;
-                        if (status == BluetoothGatt.GATT_SUCCESS) {
-                            cancel(connectionTimeout);
-                            setState(ConnectionState.CONNECTED);
-                            setAccessState(AccessState.TRANSPORT_READY, "BLE bağlı. Smart Access kurulumu ile oturumu yetkilendirin.");
-                        } else failSmartAccessConnection(connection);
+                        BluetoothGattCharacteristic pending = notificationQueue.peekFirst();
+                        if (pending == null || !pending.getUuid().equals(descriptor.getCharacteristic().getUuid())) return;
+                        record("GATT_SUBSCRIBE channel=" + (UUID_CHAR_COMMAND.equals(pending.getUuid()) ? "command" : "feedback")
+                                + " status=" + status);
+                        if (status != BluetoothGatt.GATT_SUCCESS) { failSmartAccessConnection(connection); return; }
+                        notificationQueue.removeFirst();
+                        subscribeNext(connection);
                     });
                 }
                 @Override public void onCharacteristicChanged(BluetoothGatt connection, BluetoothGattCharacteristic characteristic, byte[] value) {
-                    if (UUID_CHAR_FEEDBACK.equals(characteristic.getUuid())) {
+                    if (isSmartAccessNotification(characteristic)) {
                         byte[] copy = value.clone(); main.post(() -> receiveFrame(connection, copy));
                     }
                 }
                 @Override public void onCharacteristicChanged(BluetoothGatt connection, BluetoothGattCharacteristic characteristic) {
-                    if (Build.VERSION.SDK_INT < 33 && UUID_CHAR_FEEDBACK.equals(characteristic.getUuid())) {
+                    if (Build.VERSION.SDK_INT < 33 && isSmartAccessNotification(characteristic)) {
                         byte[] value = characteristic.getValue();
                         if (value != null) { byte[] copy = value.clone(); main.post(() -> receiveFrame(connection, copy)); }
                     }
@@ -431,6 +503,37 @@ public final class VehicleBleManager {
         catch (SecurityException error) { failSmartAccessConnection(connection); }
     }
 
+    private static boolean isSmartAccessNotification(BluetoothGattCharacteristic characteristic) {
+        return UUID_CHAR_COMMAND.equals(characteristic.getUuid()) || UUID_CHAR_FEEDBACK.equals(characteristic.getUuid());
+    }
+    private void subscribeNext(BluetoothGatt connection) {
+        if (connection != gatt) return;
+        BluetoothGattCharacteristic characteristic = notificationQueue.peekFirst();
+        if (characteristic == null) {
+            cancel(connectionTimeout);
+            synchronized (this) { smartAccessServiceDevices.add(connection.getDevice()); }
+            setState(ConnectionState.CONNECTED);
+            setAccessState(AccessState.TRANSPORT_READY, "BLE bağlı. Smart Access kurulumu ile oturumu yetkilendirin.");
+            return;
+        }
+        BluetoothGattDescriptor cccd = characteristic.getDescriptor(UUID_CCCD);
+        byte[] subscription = (characteristic.getProperties() & BluetoothGattCharacteristic.PROPERTY_NOTIFY) != 0
+                ? BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
+                : (characteristic.getProperties() & BluetoothGattCharacteristic.PROPERTY_INDICATE) != 0
+                    ? BluetoothGattDescriptor.ENABLE_INDICATION_VALUE : null;
+        try {
+            if (subscription == null || cccd == null || !connection.setCharacteristicNotification(characteristic, true)) {
+                failSmartAccessConnection(connection); return;
+            }
+            if (Build.VERSION.SDK_INT >= 33) {
+                if (connection.writeDescriptor(cccd, subscription) != android.bluetooth.BluetoothStatusCodes.SUCCESS) failSmartAccessConnection(connection);
+            } else {
+                cccd.setValue(subscription);
+                if (!connection.writeDescriptor(cccd)) failSmartAccessConnection(connection);
+            }
+        } catch (SecurityException error) { failSmartAccessConnection(connection); }
+    }
+
     public void disconnect() {
         disconnect("BLE bağlantısı kesildi.");
     }
@@ -444,7 +547,7 @@ public final class VehicleBleManager {
         BluetoothGatt previous;
         synchronized (this) {
             previous = gatt; gatt = null; demoConnected = false; deviceName = null;
-            writeChar = null; feedbackChar = null;
+            writeChar = null; feedbackChar = null; notificationQueue.clear();
         }
         if (previous != null) {
             try { previous.disconnect(); previous.close(); } catch (SecurityException ignored) { }
@@ -486,12 +589,18 @@ public final class VehicleBleManager {
                         if (!setupMatches(setup, vin, account)) { accessReply(callback, false, "Kurulum sırasında araç veya oturum değişti."); return; }
                         setAccessState(AccessState.FETCHING_CERTIFICATE, create ? "Araç sahibi sertifikası oluşturuluyor." : "Yetkili araç sertifikası alınıyor.");
                         SmartAccessCertificateClient.Callback result = new SmartAccessCertificateClient.Callback() {
+                            @Override public void onDiagnostic(String event) {
+                                main.post(() -> {
+                                    if (setupMatches(setup, vin, account)) record(event);
+                                });
+                            }
                             @Override public void onSuccess(SmartAccessCertificate value) {
                                 main.post(() -> {
                                     if (!setupMatches(setup, vin, account)) { accessReply(callback, false, "Kurulum sırasında araç veya oturum değişti."); return; }
                                     certificate = value;
                                     trustPrefs.edit().putString("tru_id", truId).putString("vin", vin)
-                                            .putBoolean("owner", owner).putString("account", account).apply();
+                                            .putBoolean("owner", owner).putBoolean("guest_phone_key", false)
+                                            .putString("account", account).apply();
                                     record("CERTIFICATE_ACCEPTED");
                                     if (isGattReady()) beginAuthentication(callback);
                                     else {
@@ -503,7 +612,7 @@ public final class VehicleBleManager {
                             @Override public void onError(String message) {
                                 main.post(() -> {
                                     if (!setupMatches(setup, vin, account)) { accessReply(callback, false, "Kurulum değişti."); return; }
-                                    record("CERTIFICATE_REJECTED" + httpCode(message));
+                                    record("CERTIFICATE_REJECTED" + httpCode(message) + certificateDiagnosticTags(message));
                                     setAccessState(AccessState.ERROR, message);
                                     accessReply(callback, false, message);
                                 });
@@ -525,6 +634,19 @@ public final class VehicleBleManager {
         return setup == setupGeneration && vin.equalsIgnoreCase(storage.getVin())
                 && account.equals(currentAccount()) && storage.hasValidToken() && !storage.isDemoMode();
     }
+    /** Only fixed local stage/error codes enter the shareable log; never server bodies or identities. */
+    private static String certificateDiagnosticTags(String message) {
+        StringBuilder tags = new StringBuilder();
+        String[] allowed = {"PHONE_RELATION", "CLAIM_OWNER", "GET_CERTIFICATE", "CREATE_CERTIFICATE",
+                "OWNER_PHONE_CONFLICT", "OWNER_RELATION_REJECTED", "CERT_SERVER_FAILURE", "CERT_NOT_MODIFIED",
+                "CERT_ENVELOPE", "CERT_VIN_MISSING", "CERT_VIN_MISMATCH", "CERT_MISSING",
+                "CERT_NULL", "CERT_TYPE", "CERT_EMPTY", "CERT_SIZE", "CERT_BASE64", "CERT_FORMAT",
+                "CERT_BINDING", "RESPONSE_JSON", "RESPONSE_SIZE", "NETWORK_TIMEOUT", "NETWORK_IO"};
+        if (message != null) for (String code : allowed)
+            if (message.contains("[" + code + "]")) tags.append(" ").append(code);
+        return tags.toString();
+    }
+
     private static String httpCode(String message) {
         java.util.regex.Matcher match = java.util.regex.Pattern.compile("HTTP\\s*(\\d{3})").matcher(message == null ? "" : message);
         return match.find() ? " HTTP=" + match.group(1) : "";
@@ -537,7 +659,11 @@ public final class VehicleBleManager {
             if (!storage.hasValidToken() || !currentAccount().equals(trustPrefs.getString("account", ""))) {
                 accessReply(callback, false, "Togg ID oturumu değişti; sertifikayı yeniden alın."); return;
             }
-            certificate = certificateClient.getCached(getConfiguredTruId(), storage.getVin());
+            try {
+                certificate = trustPrefs.getBoolean("guest_phone_key", false)
+                        ? guestAccount.getCertificate(storage.getVin(), keyStore.getPhonePublicKey(getConfiguredTruId()))
+                        : certificateClient.getCached(getConfiguredTruId(), storage.getVin());
+            } catch (Exception error) { accessReply(callback, false, "Kayıtlı telefon anahtarı okunamadı."); return; }
             beginAuthentication(callback);
         });
     }
@@ -548,14 +674,16 @@ public final class VehicleBleManager {
         clearSession("Oturum yeniden başlatılıyor.");
         String truId = getConfiguredTruId(), vin = storage.getVin();
         try {
-            if (!certificate.isValidFor(truId, vin, keyStore.getPublicKey(truId, vin)))
+            boolean guestPhoneKey = trustPrefs.getBoolean("guest_phone_key", false);
+            if (!certificate.isValidFor(truId, vin, guestPhoneKey ? keyStore.getPhonePublicKey(truId) : keyStore.getPublicKey(truId, vin)))
                 throw new IllegalArgumentException("Sertifika kullanıcı/VIN/telefon anahtarı ile eşleşmiyor veya süresi dolmuş.");
             sessionTruId = truId; sessionVin = vin; sessionAccount = currentAccount();
             int epoch = generation;
             String pinKey = "sam_key." + digest(truId + "|" + vin);
             byte[] pinned = Base64.decode(trustPrefs.getString(pinKey, ""), Base64.NO_WRAP);
             authenticationCallback = callback;
-            session = new SmartAccessSession(certificate, pinned, data -> keyStore.sign(truId, vin, data),
+            session = new SmartAccessSession(certificate, pinned,
+                    data -> guestPhoneKey ? keyStore.signPhoneKey(truId, data) : keyStore.sign(truId, vin, data),
                     this::enqueueWrite, new SmartAccessSession.Listener() {
                 @Override public void onStage(String message) {
                     if (epoch == generation) setAccessState(commandPending ? AccessState.COMMAND_PENDING
@@ -603,7 +731,16 @@ public final class VehicleBleManager {
             });
             session.setPacketCapacity(Math.min(247, Math.max(20, negotiatedMtu - 3)));
             setAccessState(AccessState.AUTHENTICATING, "Araç sertifika isteği bekleniyor.");
-            session.start();
+            boolean certificateRequestQueued = false;
+            for (byte[] frame : deferredFrames) {
+                if (frame.length == SmartAccessProtocol.HEADER_LENGTH
+                        && (frame[0] & 255) == SmartAccessProtocol.REQUEST_USER_CERTIFICATE
+                        && (frame[1] & 255) == SmartAccessProtocol.RequestState.FIRST_PACK_WAITING.id) {
+                    certificateRequestQueued = true;
+                    break;
+                }
+            }
+            session.start(!certificateRequestQueued);
             authTimeout = () -> sessionFailure("Yetkilendirme yanıtı alınamadı. Araçtaki erişim cihazları ekranını ve BLE bağlantısını kontrol edin.");
             main.postDelayed(authTimeout, 30000);
             while (session != null && !deferredFrames.isEmpty()) session.receive(deferredFrames.removeFirst());
@@ -692,7 +829,7 @@ public final class VehicleBleManager {
         writeBusy = true;
         try {
             boolean accepted;
-            if (Build.VERSION.SDK_INT >= 33) accepted = gatt.writeCharacteristic(writeChar, bytes, type) == BluetoothGatt.GATT_SUCCESS;
+            if (Build.VERSION.SDK_INT >= 33) accepted = gatt.writeCharacteristic(writeChar, bytes, type) == android.bluetooth.BluetoothStatusCodes.SUCCESS;
             else {
                 writeChar.setWriteType(type); writeChar.setValue(bytes);
                 accepted = gatt.writeCharacteristic(writeChar);

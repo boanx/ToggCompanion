@@ -53,18 +53,49 @@ public final class SmartAccessCertificate {
     public static SmartAccessCertificate parseFromServer(JSONObject response, String expectedVin,
             String expectedTruId, byte[] localPhonePublicKey) {
         if (response == null) throw new IllegalArgumentException("Sertifika yanıtı boş.");
-        JSONObject body = response.optJSONObject("data");
-        if (body == null) body = response;
-        String vin = SmartAccessKeyStore.normalizeVin(body.optString("vin", ""));
-        if (!vin.equals(SmartAccessKeyStore.normalizeVin(expectedVin))) throw new IllegalArgumentException("Sertifika VIN numarası araçla eşleşmiyor.");
+        JSONObject body = response;
+        if (response.has("data")) {
+            body = response.optJSONObject("data");
+            if (body == null) throw new IllegalArgumentException("[CERT_ENVELOPE] Sertifika yanıtındaki data alanı nesne değil veya boş.");
+        }
+        requireCertificateSuccess(response);
+        if (body != response) requireCertificateSuccess(body);
+        Object vinValue = body.opt("vin");
+        if (!(vinValue instanceof String)) throw new IllegalArgumentException("[CERT_VIN_MISSING] Sertifika yanıtında vin metni yok.");
+        String vin = SmartAccessKeyStore.normalizeVin((String) vinValue);
+        if (!vin.equals(SmartAccessKeyStore.normalizeVin(expectedVin))) throw new IllegalArgumentException("[CERT_VIN_MISMATCH] Sertifika VIN numarası araçla eşleşmiyor.");
+        if (!body.has("certificateBase64")) throw new IllegalArgumentException("[CERT_MISSING] Sertifika yanıtında certificateBase64 alanı yok.");
+        if (body.isNull("certificateBase64")) throw new IllegalArgumentException("[CERT_NULL] Sunucu certificateBase64 alanını null döndürdü; kullanılabilir sertifika yok.");
+        Object encodedValue = body.opt("certificateBase64");
+        if (!(encodedValue instanceof String)) throw new IllegalArgumentException("[CERT_TYPE] certificateBase64 alanı metin değil.");
+        String encoded = (String) encodedValue;
+        // Permit standard Base64 line wrapping, never ignore arbitrary non-alphabet characters.
+        encoded = encoded.replace("\r", "").replace("\n", "").replace("\t", "").replace(" ", "");
+        if (encoded.isEmpty()) throw new IllegalArgumentException("[CERT_EMPTY] Sunucu boş certificateBase64 döndürdü; kullanılabilir sertifika yok.");
+        if (encoded.length() > 4096) throw new IllegalArgumentException("[CERT_SIZE] Kodlanmış sertifika boyut sınırını aştı.");
         byte[] raw;
-        try { raw = Base64.getDecoder().decode(body.getString("certificateBase64")); }
-        catch (Exception error) { throw new IllegalArgumentException("Sertifika base64 verisi geçersiz."); }
-        SmartAccessCertificate certificate = parse(raw, body.optLong("timestamp", 0));
+        try { raw = Base64.getDecoder().decode(encoded); }
+        catch (IllegalArgumentException error) { throw new IllegalArgumentException("[CERT_BASE64] Sertifika metni standart Base64 olarak çözümlenemedi."); }
+        SmartAccessCertificate certificate;
+        try { certificate = parse(raw, body.optLong("timestamp", 0)); }
+        catch (IllegalArgumentException error) { throw new IllegalArgumentException("[CERT_FORMAT] " + error.getMessage()); }
         if (!certificate.isValidFor(expectedTruId, expectedVin, localPhonePublicKey)) {
-            throw new IllegalArgumentException("Sertifika kullanıcı, araç, yerel açık anahtar veya geçerlilik tarihiyle eşleşmiyor.");
+            throw new IllegalArgumentException("[CERT_BINDING] Sertifika kullanıcı, araç, yerel açık anahtar veya geçerlilik tarihiyle eşleşmiyor.");
         }
         return certificate;
+    }
+
+    private static void requireCertificateSuccess(JSONObject body) {
+        if (!body.has("resultEnum")) return; // Validated local cache records omit the server result envelope.
+        Object result = body.opt("resultEnum");
+        if (!(result instanceof String))
+            throw new IllegalArgumentException("[CERT_RESULT_TYPE] Sertifika sonucundaki resultEnum alanı geçersiz.");
+        if ("Success".equalsIgnoreCase((String) result)) return;
+        if ("Failure".equalsIgnoreCase((String) result))
+            throw new IllegalArgumentException("[CERT_SERVER_FAILURE] Sunucu sertifika isteğine Failure sonucu döndürdü. HTTP 200 sertifika verildiği anlamına gelmiyor.");
+        if ("UpToDate".equalsIgnoreCase((String) result))
+            throw new IllegalArgumentException("[CERT_NOT_MODIFIED] Sunucu UpToDate döndürdü; bu yanıt tek başına yeni bir sertifika içermiyor.");
+        throw new IllegalArgumentException("[CERT_SERVER_RESULT] Sunucu sertifika isteğini Success olarak sonuçlandırmadı. Smart Access tanı bilgisini kontrol edin.");
     }
 
     /** Parsing alone does not establish server origin; callers must use the authenticated client. */
@@ -133,16 +164,21 @@ public final class SmartAccessCertificate {
         return value == 1;
     }
 
-    // Original FJc: hour, minute, month, day, uint16 year little endian; DateTime.utc.
+    // Original b98e4c -> DateTime.utc(year, month, day, hour, minute):
+    // wire order is hour, minute, DAY, MONTH, uint16 year little endian.
     private static long decodeDate(byte[] bytes, int offset) {
         int year = (bytes[offset + 4] & 255) | ((bytes[offset + 5] & 255) << 8);
-        if (year < 1970 || year > 9999) throw new IllegalArgumentException("Sertifika tarihi geçersiz.");
+        if (year < 1970 || year > 9999) throw invalidDate(offset);
         GregorianCalendar calendar = new GregorianCalendar(TimeZone.getTimeZone("UTC"));
         calendar.clear(); calendar.setLenient(false);
-        calendar.set(year, (bytes[offset + 2] & 255) - 1, bytes[offset + 3] & 255,
+        calendar.set(year, (bytes[offset + 3] & 255) - 1, bytes[offset + 2] & 255,
                 bytes[offset] & 255, bytes[offset + 1] & 255, 0);
         try { return calendar.getTimeInMillis(); }
-        catch (IllegalArgumentException error) { throw new IllegalArgumentException("Sertifika tarihi geçersiz."); }
+        catch (IllegalArgumentException error) { throw invalidDate(offset); }
+    }
+
+    private static IllegalArgumentException invalidDate(int offset) {
+        return new IllegalArgumentException("[CERT_DATE] Sertifika tarihi geçersiz: alan=" + offset);
     }
 
     private static void encodeDate(byte[] bytes, int offset, long millis) {
@@ -152,8 +188,8 @@ public final class SmartAccessCertificate {
         if (year < 1970 || year > 9999) throw new IllegalArgumentException("Sertifika tarihi geçersiz.");
         bytes[offset] = (byte) calendar.get(Calendar.HOUR_OF_DAY);
         bytes[offset + 1] = (byte) calendar.get(Calendar.MINUTE);
-        bytes[offset + 2] = (byte) (calendar.get(Calendar.MONTH) + 1);
-        bytes[offset + 3] = (byte) calendar.get(Calendar.DAY_OF_MONTH);
+        bytes[offset + 2] = (byte) calendar.get(Calendar.DAY_OF_MONTH);
+        bytes[offset + 3] = (byte) (calendar.get(Calendar.MONTH) + 1);
         bytes[offset + 4] = (byte) year; bytes[offset + 5] = (byte) (year >> 8);
     }
 }

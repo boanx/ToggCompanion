@@ -18,8 +18,11 @@ import android.widget.Toast;
 import com.togg.companion.R;
 import com.togg.companion.core.ToggAuthManager;
 import com.togg.companion.data.SecureTokenStorage;
+import com.togg.companion.core.AppLog;
+import com.togg.companion.data.SmartAccessAccountStorage;
 
 public final class ToggLoginActivity extends Activity {
+    public static final String EXTRA_SMART_ACCESS_ACCOUNT = "smart_access_guest_account";
 
     private WebView webView;
     private ProgressBar progressBar;
@@ -28,11 +31,14 @@ public final class ToggLoginActivity extends Activity {
 
     private String codeVerifier;
     private boolean isHandled = false;
+    private boolean smartAccessAccount;
+    private String oauthState;
 
     @SuppressLint("SetJavaScriptEnabled")
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        smartAccessAccount = getIntent().getBooleanExtra(EXTRA_SMART_ACCESS_ACCOUNT, false);
         setContentView(R.layout.activity_togg_login);
 
         webView = findViewById(R.id.web_view);
@@ -43,6 +49,10 @@ public final class ToggLoginActivity extends Activity {
         setupWindowInsets();
         findViewById(R.id.btn_back).setOnClickListener(v -> finish());
 
+        if (android.os.Build.VERSION.SDK_INT >= 33) {
+            getOnBackInvokedDispatcher().registerOnBackInvokedCallback(
+                    android.window.OnBackInvokedDispatcher.PRIORITY_DEFAULT, this::handleBack);
+        }
         setupWebView();
         startAuthentication();
     }
@@ -123,20 +133,32 @@ public final class ToggLoginActivity extends Activity {
         codeVerifier = ToggAuthManager.generateCodeVerifier();
         String codeChallenge = ToggAuthManager.generateCodeChallenge(codeVerifier);
         String authUrl = ToggAuthManager.buildAuthorizationUrl(codeChallenge);
+        if (smartAccessAccount) {
+            oauthState = ToggAuthManager.generateCodeVerifier();
+            authUrl += "&prompt=login&state=" + Uri.encode(oauthState);
+        }
         webView.loadUrl(authUrl);
     }
 
     private synchronized void handleCallbackUrl(String url) {
         if (isHandled) return;
+        Uri uri = Uri.parse(url);
+        if (smartAccessAccount && (!"superapp".equals(uri.getScheme())
+                || !"prod".equals(uri.getHost()) || !"/callback".equals(uri.getPath())
+                || oauthState == null || !oauthState.equals(uri.getQueryParameter("state")))) {
+            Toast.makeText(this, "Paylaşılan hesap giriş yanıtı doğrulanamadı; yeniden giriş yapın.", Toast.LENGTH_LONG).show();
+            finish();
+            return;
+        }
         isHandled = true;
 
-        Uri uri = Uri.parse(url);
         String code = uri.getQueryParameter("code");
         String error = uri.getQueryParameter("error");
         String errorDesc = uri.getQueryParameter("error_description");
 
         if (error != null) {
-            Toast.makeText(this, "Giriş yapılamadı: " + (errorDesc != null ? errorDesc : error), Toast.LENGTH_LONG).show();
+            AppLog.event(this, "LOGIN", errorDesc != null ? errorDesc : error);
+            Toast.makeText(this, "Giriş tamamlanamadı. Bilgilerinizi kontrol edip yeniden deneyin.", Toast.LENGTH_LONG).show();
             finish();
             return;
         }
@@ -151,6 +173,23 @@ public final class ToggLoginActivity extends Activity {
                 @Override
                 public void onSuccess(String accessToken, String refreshToken) {
                     SecureTokenStorage storage = new SecureTokenStorage(ToggLoginActivity.this);
+                    if (smartAccessAccount) {
+                        try {
+                            String telemetrySubject = SmartAccessAccountStorage.subject(storage.getAccessToken());
+                            new SmartAccessAccountStorage(ToggLoginActivity.this)
+                                    .saveTokens(accessToken, refreshToken, telemetrySubject);
+                        } catch (IllegalArgumentException | IllegalStateException error) {
+                            onError(error.getMessage());
+                            return;
+                        }
+                        runOnUiThread(() -> {
+                            Toast.makeText(ToggLoginActivity.this,
+                                    "Paylaşılan anahtar hesabı kaydedildi. Davet kabulü henüz tamamlanmadı.", Toast.LENGTH_LONG).show();
+                            setResult(RESULT_OK);
+                            finish();
+                        });
+                        return;
+                    }
                     storage.setAccessToken(accessToken);
                     if (refreshToken != null && !refreshToken.isEmpty()) {
                         storage.setRefreshToken(refreshToken);
@@ -166,13 +205,14 @@ public final class ToggLoginActivity extends Activity {
 
                 @Override
                 public void onError(String errorMessage) {
+                    AppLog.event(ToggLoginActivity.this, "LOGIN", errorMessage);
                     runOnUiThread(() -> {
                         if (layoutLoading != null) layoutLoading.setVisibility(View.GONE);
                         if (webView != null) webView.setVisibility(View.VISIBLE);
 
                         new AlertDialog.Builder(ToggLoginActivity.this)
-                                .setTitle("Oturum Anahtarı Hatası")
-                                .setMessage("Giriş onaylandı ancak token alınamadı:\n" + errorMessage)
+                                .setTitle("Giriş tamamlanamadı")
+                                .setMessage("Oturum açılamadı. Bağlantınızı kontrol edip yeniden deneyin.")
                                 .setPositiveButton("Tekrar Dene", (d, w) -> startAuthentication())
                                 .setNegativeButton("Kapat", (d, w) -> finish())
                                 .show();
@@ -182,13 +222,14 @@ public final class ToggLoginActivity extends Activity {
         }
     }
 
-    @Override
-    public void onBackPressed() {
-        if (webView != null && webView.canGoBack()) {
-            webView.goBack();
-        } else {
-            super.onBackPressed();
-        }
+    private void handleBack() {
+        if (webView != null && webView.canGoBack()) webView.goBack();
+        else finish();
+    }
+    @Override public boolean onKeyUp(int keyCode, android.view.KeyEvent event) {
+        if (android.os.Build.VERSION.SDK_INT < 33 && keyCode == android.view.KeyEvent.KEYCODE_BACK
+                && webView != null && webView.canGoBack()) { webView.goBack(); return true; }
+        return super.onKeyUp(keyCode, event);
     }
 
     private int dpToPx(int dp) {

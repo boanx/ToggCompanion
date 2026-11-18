@@ -133,3 +133,7 @@ MISSING (güncel): fiziksel araçta uçtan uca deneme; e-Motor READY→aksesuar 
 ## HTTP 301 rota host düzeltmesi — 12 Ekim 2026
 
 Önceki şema/yol kanıtı API alan adını belirlemiyordu. Güncel public config, runtime NAVIGATION_API_URL getter’ı/client initialization ve kimliksiz HEAD karşılaştırması navigasyon API alan adına geçişi destekler. Superapp yolunun /home yönlendirmesi takip edilmemelidir. Ayrıntılar: [HTTP301_ROUTE_FIX.md](HTTP301_ROUTE_FIX.md). Kaynak düzeltmesi APK’ye alınmadı.
+
+## 19 Ekim — Sahip kaydı / paylaşılan anahtar ayrımı
+
+[Kaynak araştırması ve uygulama planı](SMART_ACCESS_ENROLLMENT_RESEARCH.md). Önemli düzeltme: ikinci CreateCertificate yolu0x2087a44 isOwnerCertificate=false gönderir; sessionId/vehicleName paylaşılan/saat anahtarı çağıranlarıyla bağlantılıdır. Önceki bu varyantın true olduğu notları aşılmıştır. Araç içi ilk kayıt ile davet kabulü ayrı süreçlerdir; mevcut500’ün kesin nedeni belirlenmedi. Bu araştırmada uygulama kodu/derleme/canlı istek yok.

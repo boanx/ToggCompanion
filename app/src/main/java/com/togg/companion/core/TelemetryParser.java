@@ -86,37 +86,13 @@ public final class TelemetryParser {
                 chargeModeStr = findString(telem, "Bağlı Değil", "chargeMode", "chargingMode");
             }
 
-            boolean isCharging = false;
-            double chargePowerKw = 0.0;
-            String chargeModeDisplay = "Bağlı Değil";
-
-            String cmUpper = chargeModeStr.toUpperCase();
-            if (cmUpper.contains("DC") || cmUpper.contains("TRUGO") || cmUpper.contains("FAST") || cmUpper.contains("HIZLI")) {
-                isCharging = true;
-                chargePowerKw = findDouble(telem, 120.0, "chargePowerKw", "chargingPower", "power");
-                chargeModeDisplay = "DC Hızlı Şarj (Trugo)";
-            } else if (cmUpper.contains("AC") || cmUpper.contains("SLOW") || cmUpper.contains("YAVAS")) {
-                isCharging = true;
-                chargePowerKw = findDouble(telem, 11.0, "chargePowerKw", "chargingPower", "power");
-                chargeModeDisplay = "AC Şarj (11 kW)";
-            } else if (cmUpper.contains("CHARG") && !cmUpper.contains("NOT") && !cmUpper.contains("NO_")) {
-                isCharging = true;
-                chargePowerKw = findDouble(telem, 11.0, "chargePowerKw", "chargingPower", "power");
-                chargeModeDisplay = "Şarj Oluyor (" + String.format(Locale.US, "%.1f kW", chargePowerKw) + ")";
-            }
-
-            // Allow direct isCharging boolean override if present
-            Boolean directCharging = findBoolean(telem, null, "isCharging", "chargingStatus", "charging");
-            if (directCharging != null) {
-                isCharging = directCharging;
-                if (!isCharging) {
-                    chargeModeDisplay = "Bağlı Değil";
-                    chargePowerKw = 0.0;
-                } else if (chargePowerKw == 0.0) {
-                    chargePowerKw = findDouble(telem, 11.0, "chargePowerKw", "chargingPower", "power");
-                    chargeModeDisplay = "Şarj Oluyor (" + String.format(Locale.US, "%.1f kW", chargePowerKw) + ")";
-                }
-            }
+            String parsedChargeMode = ChargingInfo.mode(chargeModeStr);
+            boolean isCharging = !parsedChargeMode.isEmpty();
+            Boolean directCharging = ChargingInfo.directState(telem);
+            if (directCharging != null) isCharging = directCharging;
+            double chargePowerKw = isCharging ? ChargingInfo.readPower(telem) : 0.0;
+            String chargeModeDisplay = !isCharging ? "Bağlı Değil"
+                    : parsedChargeMode.isEmpty() ? "Şarj Oluyor" : parsedChargeMode;
 
             int chargeRemainingMin = (int) Math.round(findDouble(telem, isCharging ? 45.0 : 0.0, "chargeRemainingMinutes", "remainingChargingTime"));
             int targetChargeLimit = (int) Math.round(findDouble(telem, 80.0, "targetChargeLimitPercent", "targetSoc"));
@@ -223,32 +199,34 @@ public final class TelemetryParser {
 
             // 6. Sürüş İstatistikleri
             // Real Togg schema: odometerStatus -> odometerStatusContent -> odometer -> odometerValue
-            double odoDouble = findDouble(odoObj, -1.0, "odometerValue", "odometer", "odometerKm", "totalDistance");
-            if (odoObj != null && odoDouble >= 0) {
-                odoDouble /= 1000.0;
-            }
-            if (odoDouble < 0) {
-                odoDouble = findDouble(telem, 14280.0, "odometer", "odometerKm", "odometerValue");
-                if (odoDouble >= 50000.0) {
-                    odoDouble /= 1000.0;
+            double meters = findDouble(odoObj, -1.0, "odometerValue", "odometer", "totalDistance");
+            double odoDouble;
+            if (Double.isFinite(meters) && meters >= 0) odoDouble = meters / 1000.0;
+            else {
+                // Explicit kilometer fields retain their unit even above 50,000 km.
+                odoDouble = findDouble(telem, -1.0, "odometerKm");
+                if (!Double.isFinite(odoDouble) || odoDouble < 0) {
+                    odoDouble = findDouble(telem, 0.0, "odometer", "odometerValue");
+                    // Preserve compatibility for the legacy flat meter payload.
+                    if (odoDouble >= 50000.0) odoDouble /= 1000.0;
                 }
             }
-            long odometer = (long) Math.round(odoDouble);
+            // Missing data must never become a fabricated 14,280 km reading.
+            long odometer = Double.isFinite(odoDouble) && odoDouble >= 0 ? (long) Math.floor(odoDouble) : 0L;
 
             // Drive Mode: driveMode -> content -> driveModeState -> driveMode
-            String driveMode = findString(driveModeObj, null, "driveMode", "driveModeState");
-            if (driveMode == null) {
-                driveMode = findString(telem, "Comfort", "driveMode", "driveModeState");
-            }
+            String rawDriveMode = findString(driveModeObj, null, "driveModeEnumValue", "driveModeValueEnum", "driveModeStateValueEnum", "driveMode", "driveModeState");
+            if (rawDriveMode == null) rawDriveMode = findString(telem, null, "driveModeEnumValue", "driveModeValueEnum", "driveModeStateValueEnum", "driveMode", "driveModeState");
+            String driveMode = DriveMode.canonical(rawDriveMode);
 
             // Last Trip Info: tripObj has currentTrip, lastChargeTrip, myTrip
             JSONObject curTripObj = tripObj != null ? tripObj.optJSONObject("currentTrip") : null;
             JSONObject chargeTripObj = tripObj != null ? tripObj.optJSONObject("lastChargeTrip") : null;
             JSONObject myTripObj = tripObj != null ? tripObj.optJSONObject("myTrip") : null;
 
-            VehicleTelemetry.TripData currentTrip = parseTripData(curTripObj, 3.0, 12, 22.0, 48);
-            VehicleTelemetry.TripData lastChargeTrip = parseTripData(chargeTripObj, 85.0, 110, 17.2, 54);
-            VehicleTelemetry.TripData myTrip = parseTripData(myTripObj, odoDouble > 0 ? odoDouble : 14280.0, 1450, 17.8, 56);
+            VehicleTelemetry.TripData currentTrip = parseTripData(curTripObj, 0.0, 0, 0.0, 0);
+            VehicleTelemetry.TripData lastChargeTrip = parseTripData(chargeTripObj, 85.0, 0, 17.2, 54);
+            VehicleTelemetry.TripData myTrip = parseTripData(myTripObj, 0.0, 0, 0.0, 0);
 
             double lastTripDist = currentTrip.distanceKm;
             int lastTripDur = currentTrip.durationMinutes;
@@ -324,32 +302,19 @@ public final class TelemetryParser {
             distKm = fallbackDist;
         }
 
-        // Duration: Duration(hours, minutes) or minutes
+        // Named hour/minute fields retain their units; never infer a 10x scale from magnitude.
         JSONObject durObj = tripObj.optJSONObject("duration");
-        int durationMin;
-        if (durObj != null) {
-            int h = durObj.optInt("hours", 0);
-            int m = durObj.optInt("minutes", 0);
-            // Togg sends minutes in tenths of a minute (e.g. 220 = 22 dk) or duration is 10x
-            if (m > 59 || (h == 0 && m >= 10)) {
-                m = (int) Math.round(m / 10.0);
-            }
-            durationMin = (h * 60) + m;
-        } else {
-            double rawH = findDouble(tripObj, 0.0, "hours");
-            double rawM = findDouble(tripObj, -1.0, "minutes", "duration", "durationMinutes");
-            if (rawM >= 0) {
-                if (rawM > 59 || (rawH == 0 && rawM >= 10)) {
-                    rawM = rawM / 10.0;
-                }
-                durationMin = (int) Math.round(rawH * 60 + rawM);
-            } else {
-                durationMin = fallbackDur;
-            }
-        }
-        if (durationMin > 600 && durObj == null) {
-            durationMin = durationMin / 10;
-        }
+        JSONObject durationSource = durObj != null ? durObj : tripObj;
+        double explicitTotal = durObj == null ? findDouble(tripObj, -1.0, "durationMinutes", "duration") : -1.0;
+        double hours = findDouble(durationSource, -1.0, "hours");
+        double minutes = findDouble(durationSource, -1.0, "minutes");
+        boolean validHours = Double.isFinite(hours) && hours >= 0;
+        boolean validMinutes = Double.isFinite(minutes) && minutes >= 0;
+        boolean validTotal = Double.isFinite(explicitTotal) && explicitTotal >= 0;
+        double totalMinutes = validTotal ? explicitTotal
+                : (validHours ? hours * 60.0 : 0.0) + (validMinutes ? minutes : 0.0);
+        int durationMin = (validTotal || validHours || validMinutes) && Double.isFinite(totalMinutes)
+                ? (int) Math.min(Integer.MAX_VALUE, Math.round(totalMinutes)) : fallbackDur;
 
         // Avg consumption: in 0.1 kWh/100km (e.g. 168 -> 16.8)
         double rawCons = findDouble(tripObj, -1.0, "avgConsumptions", "avgConsumption", "consumption");

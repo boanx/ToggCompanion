@@ -29,9 +29,12 @@ public final class TvaApiClient {
     public interface DestinationCallback {
         void onSuccess(String message);
         void onError(String message);
+        default void onAccepted(String message) { onSuccess(message); }
         default void onUncertain(String message) { onError(message); }
     }
     // Trumore prod NAVIGATION_API_URL. SUPERAPP_URL is not the navigation API.
+    public static final String COMPANIONS_ENDPOINT = "https://navigation-api.togg.cloud/c/api/Companions";
+    // Retained for planned-route JSON compatibility; this is not the vehicle sharing service.
     public static final String PLANNED_JOURNEYS_ENDPOINT = "https://navigation-api.togg.cloud/j/api/PlannedJourneys";
 
     public interface TelemetryCallback {
@@ -67,6 +70,11 @@ public final class TvaApiClient {
                     DESTINATION_IN_FLIGHT.set(false); callback.onSuccess(message);
                 }
             }
+            @Override public void onAccepted(String message) {
+                if (completed.compareAndSet(false, true)) {
+                    DESTINATION_IN_FLIGHT.set(false); callback.onAccepted(message);
+                }
+            }
             @Override public void onError(String message) {
                 if (completed.compareAndSet(false, true)) {
                     DESTINATION_IN_FLIGHT.set(false); callback.onError(message);
@@ -81,7 +89,7 @@ public final class TvaApiClient {
         new Thread(() -> {
             try { sendDestinationRequest(route.lat, route.lon, route.name, route, once, true); }
             catch (Exception error) { once.onError("Rota gönderimi hazırlanamadı. Oturumu ve araç bilgisini kontrol edin."); }
-        }, "togg-planned-route").start();
+        }, "togg-shared-route").start();
     }
 
     private void sendDestinationRequest(double lat, double lon, String name, GezRouteBridge.GezPoint route, DestinationCallback callback, boolean allowRefresh) {
@@ -102,26 +110,53 @@ public final class TvaApiClient {
                     ? new GezRouteBridge.GezPoint(cached.latitude, cached.longitude,
                         cached.parkAddress == null || cached.parkAddress.trim().isEmpty() ? "Başlangıç" : cached.parkAddress)
                     : null;
-            JSONObject payload = buildPlannedJourneyPayload(
-                    route == null ? new GezRouteBridge.GezPoint(lat, lon, name) : route, origin);
+            JSONObject payload = buildCompanionSharePayload(
+                    route == null ? new GezRouteBridge.GezPoint(lat, lon, name) : route, origin, storage.getRouteClientId());
             if (!sameDestinationSession(vin, requestToken)) {
                 callback.onError("Hesap veya araç değişti. Rota gönderimini yeniden başlatın."); return;
             }
-            connection = (HttpURLConnection) new URL(PLANNED_JOURNEYS_ENDPOINT).openConnection();
-            connection.setInstanceFollowRedirects(false);
-            connection.setRequestMethod("POST"); connection.setConnectTimeout(15000); connection.setReadTimeout(15000);
-            connection.setDoOutput(true); connection.setRequestProperty("Accept", "application/json");
-            connection.setRequestProperty("Content-Type", "application/json; charset=utf-8");
-            connection.setRequestProperty("Authorization", "Bearer " + requestToken);
-            byte[] body = payload.toString().getBytes(StandardCharsets.UTF_8);
-            connection.setFixedLengthStreamingMode(body.length);
-            try (OutputStream output = connection.getOutputStream()) { output.write(body); }
-            int code = connection.getResponseCode();
-            String responseText = "";
-            InputStream response = code >= 200 && code < 300 ? connection.getInputStream() : connection.getErrorStream();
-            if (response != null) try (InputStream stream = response) { responseText = readStream(stream); }
+            int code = 0;
+            String responseText = "", contentType = "";
+            // Original share action clears the account's prior shared route, then saves
+            // the replacement. Never delete PlannedJourneys or retry an uncertain POST.
+            for (String method : new String[]{"DELETE", "POST"}) {
+                if (!sameDestinationSession(vin, requestToken)) {
+                    callback.onUncertain("Hesap veya araç değişti; paylaşım tamamlanamadı. Araç ekranını kontrol edin."); return;
+                }
+                connection = (HttpURLConnection) new URL(COMPANIONS_ENDPOINT).openConnection();
+                connection.setInstanceFollowRedirects(false);
+                connection.setRequestMethod(method);
+                connection.setConnectTimeout(15000); connection.setReadTimeout(15000);
+                connection.setRequestProperty("Accept", "application/json");
+                connection.setRequestProperty("Authorization", "Bearer " + requestToken);
+                if ("POST".equals(method)) {
+                    connection.setDoOutput(true);
+                    connection.setRequestProperty("Content-Type", "application/json; charset=utf-8");
+                    byte[] body = payload.toString().getBytes(StandardCharsets.UTF_8);
+                    connection.setFixedLengthStreamingMode(body.length);
+                    try (OutputStream output = connection.getOutputStream()) { output.write(body); }
+                }
+                code = connection.getResponseCode();
+                contentType = connection.getContentType(); responseText = "";
+                InputStream response = code >= 200 && code < 300 ? connection.getInputStream() : connection.getErrorStream();
+                if (response != null) try (InputStream stream = response) { responseText = readDestinationResponse(stream); }
+                if (code < 200 || code >= 300) break;
+                String responseError = destinationResponseError(responseText, contentType, method);
+                if (responseError != null) {
+                    String phase = "DELETE".equals(method) ? "Önceki paylaşımı temizleme" : "Yeni rotayı kaydetme";
+                    if ("POST".equals(method) && "false".equals(responseText.trim())) {
+                        String readbackError = verifySharedRoute(payload, vin, requestToken);
+                        if (!sameDestinationSession(vin, requestToken)) callback.onUncertain("Hesap veya araç değişti; araç ekranını kontrol edin.");
+                        else reportAcceptedDestinationResponse(responseText, contentType, readbackError, callback);
+                        return;
+                    }
+                    callback.onUncertain(phase + " (" + method + ", HTTP " + code + "): " + responseError
+                            + ("DELETE".equals(method) ? " Yeni rota gönderilmedi." : " Otomatik tekrar gönderim yapılmadı; araç ekranını kontrol edin.")); return;
+                }
+                if ("DELETE".equals(method)) { connection.disconnect(); connection = null; }
+            }
             if (!sameDestinationSession(vin, requestToken)) {
-                callback.onError("Gönderim sırasında hesap veya araç değişti. Sonuç bu araç için doğrulanamadı; araç ekranını kontrol edin."); return;
+                callback.onUncertain("Gönderim sırasında hesap veya araç değişti. Sonuç bu araç için doğrulanamadı; araç ekranını kontrol edin."); return;
             }
             boolean permissionDenied = destinationPermissionDenied(responseText);
             if (code == 401 && !permissionDenied && allowRefresh && refreshToken != null && !refreshToken.isEmpty()) {
@@ -145,7 +180,11 @@ public final class TvaApiClient {
                 return;
             }
             if (code >= 200 && code < 300) {
-                callback.onSuccess("Rota Togg Cloud tarafından kabul edildi (HTTP " + code + ").");
+                String verificationError = verifySharedRoute(payload, vin, requestToken);
+                if (!sameDestinationSession(vin, requestToken)) {
+                    callback.onUncertain("Hesap veya araç değişti; araç ekranını kontrol edin."); return;
+                }
+                reportAcceptedDestinationResponse(responseText, contentType, verificationError, callback);
             } else if (code >= 300 && code < 400 && destinationHomeRedirect(connection.getHeaderField("Location"))) {
                 callback.onError("Rota gönderimi başarısız (HTTP " + code + "). Sunucu rota API'si yerine ana sayfaya (/home) yönlendirdi. Rota aktarımı tamamlanmadı.");
             } else callback.onError(destinationHttpError(code, permissionDenied));
@@ -157,6 +196,159 @@ public final class TvaApiClient {
             // Do not expose raw server bodies, credentials, account IDs or exception URLs.
             callback.onUncertain("Gönderim sonucu alınamadı. İnternet bağlantısını ve araç ekranını kontrol edin; otomatik tekrar gönderim yapılmadı.");
         } finally { if (connection != null) connection.disconnect(); }
+    }
+
+    /** POST was HTTP 2xx; a separate GET failure must not turn acceptance into rejection. */
+    static void reportAcceptedDestinationResponse(String body, String type, String readbackError, DestinationCallback callback) {
+        if (readbackError == null) {
+            callback.onSuccess("Rota kaydı sunucudan geri okunarak doğrulandı. Araç ekranını kontrol edin.");
+        } else if (destinationResponseError(body, type) == null) {
+            callback.onAccepted("Gönderim sunucu tarafından kabul edildi. Geri okuma ayrıntısı: " + readbackError);
+        } else {
+            callback.onUncertain("Gönderim sonucu kesinleşmedi. " + readbackError + " Hedef ulaşmış olabilir; araç ekranını kontrol edin.");
+        }
+    }
+
+    private static String readDestinationResponse(InputStream stream) throws Exception {
+        InputStreamReader reader = new InputStreamReader(stream, StandardCharsets.UTF_8);
+        StringBuilder result = new StringBuilder(); char[] buffer = new char[2048]; int count;
+        while ((count = reader.read(buffer)) != -1) {
+            if (result.length() + count > 65536) throw new java.io.IOException("Route response limit");
+            result.append(buffer, 0, count);
+        }
+        return result.toString();
+    }
+
+    private String verifySharedRoute(JSONObject expected, String vin, String token) {
+        HttpURLConnection readback = null;
+        try {
+            if (!sameDestinationSession(vin, token)) return "hesap veya araç değişti; kayıt doğrulanamadı.";
+            // Original share completion 0x1fce630 reads Companions via GET.
+            // A failed read must never replay DELETE/POST or replace another route.
+            readback = (HttpURLConnection) new URL(COMPANIONS_ENDPOINT).openConnection();
+            readback.setInstanceFollowRedirects(false);
+            readback.setRequestMethod("GET");
+            readback.setConnectTimeout(15000); readback.setReadTimeout(15000);
+            readback.setUseCaches(false);
+            readback.setRequestProperty("Cache-Control", "no-cache");
+            readback.setRequestProperty("Accept", "application/json");
+            readback.setRequestProperty("Authorization", "Bearer " + token);
+            int status = readback.getResponseCode();
+            if (status < 200 || status >= 300) return "kayıt geri okunamadı (GET, HTTP " + status + ").";
+            String body;
+            try (InputStream stream = readback.getInputStream()) { body = readDestinationResponse(stream); }
+            if (!sameDestinationSession(vin, token)) return "hesap veya araç değişti; kayıt doğrulanamadı.";
+            String error = destinationResponseError(body, readback.getContentType());
+            return error != null ? "kayıt geri okuma (GET, HTTP " + status + "): " + error
+                    : sharedRouteReadbackError(body, expected);
+        } catch (Exception unavailable) {
+            return "kayıt geri okuma tamamlanamadı (GET); sunucudaki hedef doğrulanamadı.";
+        } finally { if (readback != null) readback.disconnect(); }
+    }
+
+    static String sharedRouteReadbackError(String body, JSONObject expected) {
+        try {
+            Object value = new org.json.JSONTokener(body == null ? "" : body).nextValue();
+            if (!(value instanceof JSONObject)) return "geri okunan hedef nesnesi eksik (GET).";
+            JSONObject actual = (JSONObject) value;
+            if (!expected.getString("device_Id").equals(actual.optString("device_Id", "")))
+                return "geri okunan kaydın istemci kimliği eşleşmiyor (GET: device_Id).";
+            for (String key : new String[]{"startingPoint", "arrivalPoint"}) {
+                if (expected.has(key)) {
+                    String error = sharedPointReadbackError(actual.optJSONObject(key), expected.getJSONObject(key), key);
+                    if (error != null) return error;
+                }
+            }
+            JSONArray wanted = expected.optJSONArray("waypoints"), saved = actual.optJSONArray("waypoints");
+            if (saved == null) return "geri okunan ara durak listesi eksik (GET: waypoints).";
+            int wantedCount = wanted == null ? 0 : wanted.length(), savedCount = saved == null ? 0 : saved.length();
+            if (wantedCount != savedCount) return "geri okunan ara durak sayısı eşleşmiyor (GET: waypoints).";
+            for (int i = 0; i < wantedCount; i++) {
+                String error = sharedPointReadbackError(saved.optJSONObject(i), wanted.getJSONObject(i), "waypoints[" + i + "]");
+                if (error != null) return error;
+            }
+            return null;
+        } catch (JSONException invalid) { return "geri okunan rota şeması çözümlenemedi (GET)."; }
+    }
+
+    private static String sharedPointReadbackError(JSONObject actual, JSONObject expected, String key) throws JSONException {
+        if (actual == null) return "geri okunan hedef alanı eksik (GET: " + key + ").";
+        JSONObject geo = actual.optJSONObject("geolocation"), wanted = expected.getJSONObject("geolocation");
+        if (geo == null) return "geri okunan koordinat alanı eksik (GET: " + key + ".geolocation).";
+        for (String axis : new String[]{"latitude", "longitude"}) {
+            double coordinate = geo.optDouble(axis, Double.NaN);
+            if (!Double.isFinite(coordinate) || Math.abs(coordinate - wanted.getDouble(axis)) > 0.00001)
+                return "geri okunan koordinat eşleşmiyor (GET: " + key + ".geolocation." + axis + ").";
+        }
+        JSONObject address = actual.optJSONObject("address");
+        if (address == null || address.optString("label", "").trim().isEmpty())
+            return "geri okunan adres etiketi eksik (GET: " + key + ".address.label).";
+        return null;
+    }
+
+    static String destinationResponseError(String body, String contentType) {
+        return destinationResponseError(body, contentType, "POST");
+    }
+
+    static String destinationResponseError(String body, String contentType, String method) {
+        String text = body == null ? "" : body.trim();
+        String type = contentType == null ? "" : contentType.toLowerCase(java.util.Locale.ROOT);
+        if (type.contains("html") || text.startsWith("<"))
+            return "Sunucu paylaşım yanıtı yerine web sayfası döndürdü; rota kaydı doğrulanamadı.";
+        // Original Companions POST has no typed response parser; an empty 2xx is valid.
+        if (text.isEmpty() || "true".equals(text) || "null".equals(text)) return null;
+        // Original delete wrapper 0x1fe80ac discards the returned value after
+        // awaiting HTTP; dispatch 0x1fce4e8 then proceeds to save unconditionally.
+        // A scalar false from a successful DELETE must not suppress the new POST.
+        // Keep POST false uncertain: it does not establish a saved route.
+        if ("false".equals(text)) return "DELETE".equals(method) ? null
+                : "Paylaşım servisi false yanıtı döndürdü; rota kaydı doğrulanamadı.";
+        try {
+            Object value = new org.json.JSONTokener(text).nextValue();
+            if (!(value instanceof JSONObject)) return "Paylaşım servisinden beklenmeyen yanıt alındı; rota kaydı doğrulanamadı.";
+            JSONObject json = (JSONObject) value;
+            for (String key : new String[]{"success", "isSuccess"})
+                if (json.has(key) && Boolean.FALSE.equals(json.opt(key))) return "Paylaşım servisi işlemi reddetti.";
+            for (String key : new String[]{"error", "errors"}) {
+                Object error = json.opt(key);
+                if (error != null && error != JSONObject.NULL && !Boolean.FALSE.equals(error)
+                        && !"".equals(error) && !"[]".equals(error.toString()) && !"{}".equals(error.toString()))
+                    return "Paylaşım servisi hata bildirdi; rota kaydı doğrulanamadı.";
+            }
+            String status = json.optString("status", "").toLowerCase(java.util.Locale.ROOT);
+            if ("error".equals(status) || "failed".equals(status) || "failure".equals(status)
+                    || json.optInt("status", 0) >= 400)
+                return "Paylaşım servisi işlemi reddetti.";
+            return null;
+        } catch (JSONException invalid) {
+            return "Paylaşım servisi yanıtı okunamadı; rota kaydı doğrulanamadı.";
+        }
+    }
+
+    static JSONObject buildCompanionSharePayload(GezRouteBridge.GezPoint route,
+            GezRouteBridge.GezPoint currentOrigin, String clientId) throws JSONException {
+        if (clientId == null || clientId.trim().isEmpty()) throw new IllegalArgumentException("İstemci kimliği gerekli.");
+        JSONObject planned = buildPlannedJourneyPayload(route, currentOrigin);
+        // Exact original share schema: lowercase geolocation, flat placeName,
+        // source marker and phone installation identity. device_Id is not VIN.
+        JSONObject shared = new JSONObject().put("source", "trumore-mobile-app").put("device_Id", clientId);
+        for (String key : new String[]{"startingPoint", "arrivalPoint"})
+            if (planned.has(key)) shared.put(key, buildCompanionPoint(planned.getJSONObject(key)));
+        JSONArray points = planned.optJSONArray("waypoints");
+        // Original dispatch always allocates this list, including zero stops.
+        // Missing/null differs from [] for consumers of the saved JourneyResponse.
+        JSONArray converted = new JSONArray();
+        if (points != null) {
+            for (int i = 0; i < points.length(); i++) converted.put(buildCompanionPoint(points.getJSONObject(i)));
+        }
+        shared.put("waypoints", converted);
+        return shared;
+    }
+
+    private static JSONObject buildCompanionPoint(JSONObject point) throws JSONException {
+        String label = point.getJSONObject("address").getString("label");
+        return new JSONObject().put("geolocation", point.getJSONObject("geoLocation"))
+                .put("placeName", label).put("address", new JSONObject().put("label", label));
     }
 
     private boolean sameDestinationSession(String vin, String token) {
@@ -186,7 +378,7 @@ public final class TvaApiClient {
         if (location == null || location.trim().isEmpty()) return false;
         try {
             // Diagnostic only. Never forward Authorization or POST data to the redirect.
-            String path = new URL(new URL(PLANNED_JOURNEYS_ENDPOINT), location).getPath();
+            String path = new URL(new URL(COMPANIONS_ENDPOINT), location).getPath();
             return "/home".equals(path) || "/home/".equals(path);
         } catch (java.net.MalformedURLException invalid) { return false; }
     }
@@ -319,6 +511,7 @@ public final class TvaApiClient {
                     callback.onError("Togg sunucusundan geçerli telemetri alınamadı.", storage.getActiveTelemetry());
                     return;
                 }
+                storage.logChargingDiagnostic(com.togg.companion.core.ChargingInfo.diagnostic(body, parsed.isCharging, parsed.timestampMillis));
                 if (parsed.vin != null && !parsed.vin.isEmpty() && !parsed.vin.equalsIgnoreCase("NL1CFB0P800100522")) {
                     storage.setVin(parsed.vin);
                 }

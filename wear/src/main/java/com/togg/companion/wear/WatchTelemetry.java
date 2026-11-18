@@ -33,7 +33,7 @@ public final class WatchTelemetry implements Serializable {
         this.soc = Math.max(0, Math.min(100, soc));
         this.rangeKm = Math.max(0, rangeKm);
         this.isCharging = isCharging;
-        this.chargePowerKw = Math.max(0.0, chargePowerKw);
+        this.chargePowerKw = !isCharging ? 0.0 : Double.isFinite(chargePowerKw) && chargePowerKw >= 0 ? chargePowerKw : -1.0;
         this.batt12vSoc = Math.max(0, Math.min(100, batt12vSoc));
         this.batt12vAlert = batt12vAlert || (this.batt12vSoc < 60);
         this.tiresNormal = tiresNormal;

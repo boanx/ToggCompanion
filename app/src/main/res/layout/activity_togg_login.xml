@@ -52,17 +52,6 @@
                 android:textColor="@color/text_muted"
                 android:textSize="11sp" />
         </LinearLayout>
-
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:background="@drawable/badge_pill"
-            android:paddingHorizontal="8dp"
-            android:paddingVertical="3dp"
-            android:text="SSL 256-BIT"
-            android:textColor="@color/status_green"
-            android:textSize="10sp"
-            android:textStyle="bold" />
     </LinearLayout>
 
     <!-- Page Loading Progress Bar -->
@@ -116,7 +105,7 @@
                 android:layout_height="wrap_content"
                 android:layout_marginTop="8dp"
                 android:gravity="center"
-                android:text="Oturum anahtarı güvenle alınıyor ve aracınızın canlı telemetri bağlantısı kuruluyor..."
+                android:text="Girişiniz tamamlanıyor…"
                 android:textColor="@color/text_secondary"
                 android:textSize="13sp" />
         </LinearLayout>

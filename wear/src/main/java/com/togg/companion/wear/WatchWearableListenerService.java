@@ -44,7 +44,7 @@ public class WatchWearableListenerService extends WearableListenerService {
                         int soc = dataMap.getInt("soc", 0);
                         int rangeKm = dataMap.getInt("range_km", 0);
                         boolean isCharging = dataMap.getBoolean("is_charging", false);
-                        double chargePower = dataMap.getDouble("charge_power_kw", 0.0);
+                        double chargePower = dataMap.getDouble("charge_power_kw", -1.0);
                         int batt12v = dataMap.getInt("batt12v_soc", 0);
                         boolean batt12vAlert = dataMap.getBoolean("batt12v_alert", false);
                         boolean tiresNormal = dataMap.getBoolean("tires_normal", false);

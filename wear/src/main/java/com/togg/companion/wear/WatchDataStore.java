@@ -81,7 +81,7 @@ public final class WatchDataStore {
                 prefs.getInt(KEY_SOC, 0),
                 prefs.getInt(KEY_RANGE, 0),
                 prefs.getBoolean(KEY_CHARGING, false),
-                prefs.getFloat(KEY_CHARGE_POWER, 0.0f),
+                prefs.getFloat(KEY_CHARGE_POWER, -1.0f),
                 prefs.getInt(KEY_BATT_12V, 0),
                 prefs.getBoolean(KEY_BATT_12V_ALERT, false),
                 prefs.getBoolean(KEY_TIRES_NORMAL, true),

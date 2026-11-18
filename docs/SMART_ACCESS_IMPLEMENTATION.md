@@ -1,5 +1,25 @@
 # Smart Access uygulaması ve manuel deneme
 
+## 21 Ekim araç denemesi — güncel devir
+
+Kullanıcı araçtan ayrılıp USB bağlantısını keseceğini bildirdi; canlı denemeler durduruldu. İmzalı BLE oturumu **henüz çalışmıyor**; araç kontrol komutu gönderilmedi. Önceki “sertifika doğrulandı” yalnız yerel sunucu sertifikası/binding denetimidir.
+
+Tamamlanan düzeltmeler:
+- Trumore bağlantı kurulumu2291d88 iki abonelik çağırır:2294cb0 (session receiver2294dfc) ve2293b24 (ikinci receiver2293d60). Companion2413 ve2415 bildirimlerini sırayla açar. Araçta her iki characteristic properties26 (READ/WRITE/NOTIFY); iki CCCD status0. Önce yalnız2415 dinlendiğinden RX0 kalıyordu.
+- İlk protokol isteği gönderilir; ancak bağlantı sırasında araçtan gelmiş FIRST sertifika isteği kuyruktaysa ikinci başlangıç gönderilmez. Böylece başlangıç çakışması önlenir.
+- Tam gönderilmiş aktif telefon sertifikası için araç PACK_COMPLETE/Iuu0/Juu0 yanıtı gözlendi. Yalnız bu değişimde toplam uzunluk veya0 kabul edilir; ACK yetki/komut başarısı değildir.
+
+Son ayrıntılı tanı: GATT bağlı/MTU247, FIRST0/1 → USER_CERTIFICATE parçaları244 ve19 bayt → PRE236/2 → COMPLETE0/0 → telefon SAM anahtarı için REQUEST_USER_CERTIFICATE FIRST0/1 gönderiyor → araç yeniden FIRST0/1 gönderiyor → fail-closed SESSION_ERROR/disconnect. TX3/RX4. SAM public key, challenge, imzalı durum henüz alınmadı. “Sertifika araç tarafından kabul edildi” anlamı çıkarılmamalı; yalnız aktarım ACK'i gözlendi. Kör sertifika tekrar döngüsü eklenmedi.
+
+Orijinal Trumore geçici kapatılarak çakışma olasılığı denendi. Ardından orijinal uygulamanın dijital anahtar ekranı açıldı; SmartAccess/Car - Connected olayı görüldü. Sahip anahtarı silinmedi/kopyalanmadı/değiştirilmedi. Son Companion tekrar girişimi başlatıldı, fakat araçtan ayrılma nedeniyle yeni sonuç doğrulanmadı.
+
+Sonraki araştırma: orijinal2296184 SAM public key edinimi ile canlı tekrar FIRST yanıtının farkı; sertifika/protokol sürümü ve iki characteristic rolü kesinleştirilmeli. İmza, SAM pin, izin, nonce, hesap/VIN kontrolleri gevşetilmemeli. Süresi dolmuş guest oturumuyla kayıtlı anahtar butonu başlangıçta başlamadı; normal guest sertifika sorgusu refresh yapıp doğruladı. Kullanım kolaylığı için authenticate öncesi guest refresh ayrıca ele alınabilir.
+
+Kanıt: work/trumore-analysis/analysis/vehicle-2026-10-21-guest/ altındaki dual-channel-diagnostics.txt, certificate-ack-diagnostics.txt ve disassembly. Ham sertifika, anahtar/token/davet verisi kaydedilmedi.
+
+Güncel telefon APK: 4132786 bayt, SHA256 `f53a326a71ffea493f41006738c807a3d173d5f0d7870802669500b31901eb39`. Açık derle/kur/dene izniyle son düzeltme offline derlendi, adb install-r-t başarılı; veriler korundu. Önceki APK/loglar obsolete altında manifestle arşivlendi. Wear/push/app test suite yok.
+
+
 12 Ekim 2026. Bu belge, önceki protokol inceleme derlemesinden sonra eklenen gerçek sertifika/BLE uygulamasını anlatır. Fiziksel araçta çalışma henüz teyit edilmedi. Klima, buğu çözme ve desteklenmeyen uzaktan kontroller pasiftir. READY'den aksesuar moduna dönüş için doğrulanmış komut bulunmadığından motor durdurma gönderilmez.
 
 ## Uygulamada deneme
@@ -40,7 +60,7 @@ Tanı metni token, özel anahtar, sertifika, UUID, VIN, challenge veya imza bayt
 | Sonuç | GATT yazma onayı veya komut ACK'i başarı değildir. Komut ACK'inden sonraki daha yeni, geçerli imzalı SAM durumunun hedef kilit/bagaj/READY haliyle eşleşmesi gerekir. Sekiz saniyede doğrulanamayan sonuç başarısızdır ve oturum kapanır. |
 | Saat/kısayol | Telefondaki aynı oturum ve sertifika izinleri kullanılır. Saatte gösterilen doğrulanmış sertifika metadatası özel anahtar değildir; saat komutu telefona iletir. Eski etkinleştirilmemiş davet kaydı canlı erişimi engellemez veya yetki vermez. |
 
-Kapı kapama/açma `0x01/0x02`, bagaj açma/kapama `0x04/0x05`, motor başlatma `0x0e` kullanılır. Komut tarihi UTC yıl BE16, ay, gün, saat, dakika, saniyedir. Sertifika tarih biçimi bundan farklıdır: saat, dakika, ay, gün, yıl LE16. Sertifika izinleri başlığa göre byte 47=kapı, 48=bagaj, 49=sürüş; tam sertifikada 48/49/50'dir.
+Kapı kapama/açma `0x01/0x02`, bagaj açma/kapama `0x04/0x05`, motor başlatma `0x0e` kullanılır. Komut tarihi UTC yıl BE16, ay, gün, saat, dakika, saniyedir. Sertifika tarih biçimi bundan farklıdır: saat, dakika, gün, ay, yıl LE16. Sertifika izinleri başlığa göre byte 47=kapı, 48=bagaj, 49=sürüş; tam sertifikada 48/49/50'dir.
 
 Request ACK `PRE` alanları alınan toplam payload uzunluğu ve sonraki blok numarasıdır; `COMPLETE` toplam uzunluk ve sıfırdır. Parçalar sıra/uzunluk/blok sayısı ile doğrulanır. Android GATT yazmaları sıraya alınır; paket kapasitesi gerçek MTU'ya göre belirlenir. En küçük MTU 23 için 20 bayt paket/12 bayt payload kullanımı test edilmiştir.
 
@@ -66,3 +86,21 @@ Analiz aracı [dae v0.1.13 kaynak kodu](https://github.com/ejfkdev/dae/tree/v0.1
 ## Doğrulama sınırı
 
 JVM testleri gerçek JCE P-256 imzaları kullanan sahte SAM ile oturum/parça/ACK/komut/durum akışını denetler. AndroidKeyStore'ın gerçek cihazda çalışması, canlı HTTPS servisinin kabulü, firmware'in aynı akışı izlemesi, kapı/bagajın fiziksel hareketi ve READY geçişi manuel denemeyle teyit edilmelidir. Yerel inceleme/derleme hiçbir sertifika API isteği veya fiziksel araç komutu göndermedi.
+
+## 15 Ekim sertifika tanı güncellemesi (kaynak)
+
+Kullanıcının MTU247/TRANSPORT_READY ve sertifika HTTP500/Base64 hata bulguları üzerine parser hata ayrımı, request stage ve GATT callback tanısı eklendi. Bu düzeltme henüz APK’ye alınmadı; HTTP500 kök nedeni çözülmüş değildir. [Kanıt, gerekçe ve sonraki adım](SMART_ACCESS_CERTIFICATE_DIAGNOSTICS.md).
+
+## 19 Ekim — Sahip kaydı / paylaşılan anahtar ayrımı
+
+[Kaynak araştırması ve uygulama planı](SMART_ACCESS_ENROLLMENT_RESEARCH.md). Önemli düzeltme: ikinci CreateCertificate yolu0x2087a44 isOwnerCertificate=false gönderir; sessionId/vehicleName paylaşılan/saat anahtarı çağıranlarıyla bağlantılıdır. Önceki bu varyantın true olduğu notları aşılmıştır. Araç içi ilk kayıt ile davet kabulü ayrı süreçlerdir; mevcut500’ün kesin nedeni belirlenmedi. Bu araştırmada uygulama kodu/derleme/canlı istek yok.
+
+
+## 21 Ekim — Paylaşılan anahtar canlı sonucu
+
+[Paylaşılan anahtar güncel kaydı](SMART_ACCESS_SHARED_ACCOUNT_PREPARATION.md): davet kabulü, kullanıcı sahip onayı ve guest sertifika/binding doğrulaması başarılı. Tarih sırasındaki ay/gün hatası decode/encode tarafında düzeltildi. BLE imzalı oturumu ve gerçek komutlar henüz doğrulanmadı.
+
+
+## Araç denemesi — ilk BLE isteği düzeltmesi (kaynak, henüz derlenmedi)
+
+21 Ekim araç denemesinde doğru servis/GATT/MTU247 hazır olmasına rağmen AUTHENTICATING sırasında TX/RX0/0 kaldı ve30 saniyede zaman aşımı oldu. Kullanıcı araç Erişim Cihazı ekranında başarılı mesajını gördü; bu Companion oturumu doğrulaması değildir. Orijinal authentication_start0x2296184, REQUEST_USER_CERTIFICATE isteğini Iuu0/Juu1 ile aktif gönderir: SAM anahtarı yoksa FIRST, cache varsa COMPLETE. Companion start yalnız bekliyordu. F69 start ilk isteği gönderecek şekilde düzeltildi; başlangıç SAM key yanıtı telefon sertifikasının kabulünden önce gelebileceğinden yalnız beklenen-key/başlatılmış oturum koşulunda kabul edilir. SAM pin, nonce, imza, sertifika ve komut kapıları korunur. Aynı oturumda start tekrar göndermez. Yeni kaynak henüz APK içinde değil; yeni açık derleme isteği beklenir.

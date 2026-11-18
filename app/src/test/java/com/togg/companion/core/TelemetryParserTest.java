@@ -5,6 +5,52 @@ import static org.junit.Assert.*;
 
 public class TelemetryParserTest {
 
+    @Test public void nestedVehicleEcoModeDoesNotBecomeComfort() {
+        VehicleTelemetry t = TelemetryParser.parse("{\"data\":{\"telemetry\":{\"driveMode\":{\"content\":{\"driveModeState\":{\"driveMode\":\"DRIVEMODE_ECO\"}}}}}}", "VIN", "PLATE");
+        assertEquals("Eco", t.driveMode);
+        assertEquals("Eco", DriveMode.label(t.driveMode));
+    }
+    @Test public void absentAndUnavailableModesNeverDefaultToComfort() {
+        assertEquals("", TelemetryParser.parse("{\"data\":{\"telemetry\":{}}}", "VIN", "PLATE").driveMode);
+        assertEquals("", TelemetryParser.parse("{\"data\":{\"telemetry\":{\"driveMode\":\"DRIVEMODE_SNA\"}}}", "VIN", "PLATE").driveMode);
+    }
+    @Test public void modeEnumLabelAliasIsParsedWithoutGuessingNumericValues() {
+        assertEquals("Eco", TelemetryParser.parse("{\"data\":{\"telemetry\":{\"driveMode\":{\"driveModeEnumValue\":\"DRIVEMODE_ECO\"}}}}", "VIN", "PLATE").driveMode);
+        assertEquals("", TelemetryParser.parse("{\"data\":{\"telemetry\":{\"driveMode\":1}}}", "VIN", "PLATE").driveMode);
+    }
+    @Test public void durationUnitsArePreservedForAllThreeTripTabs() {
+        VehicleTelemetry t = TelemetryParser.parse("{\"data\":{\"telemetry\":{},\"lastTripInfo\":{"
+                + "\"currentTrip\":{\"duration\":{\"hours\":0,\"minutes\":35}},"
+                + "\"lastChargeTrip\":{\"duration\":{\"hours\":1,\"minutes\":35}},"
+                + "\"myTrip\":{\"duration\":{\"hours\":0,\"minutes\":32}}}}}", "VIN", "PLATE");
+        assertEquals(35, t.currentTrip.durationMinutes);
+        assertEquals(95, t.lastChargeTrip.durationMinutes);
+        assertEquals(32, t.myTrip.durationMinutes);
+    }
+    @Test public void flatAndLongMinuteValuesAreNeverDividedByTen() {
+        String[] inputs = {"\"durationMinutes\":35", "\"minutes\":220", "\"duration\":720", "\"hours\":1,\"durationMinutes\":95", "\"hours\":1,\"duration\":95"};
+        int[] expected = {35, 220, 720, 95, 95};
+        for (int i = 0; i < inputs.length; i++) {
+            VehicleTelemetry t = TelemetryParser.parse("{\"data\":{\"telemetry\":{},\"lastTripInfo\":{\"myTrip\":{" + inputs[i] + "}}}}", "VIN", "PLATE");
+            assertEquals(expected[i], t.myTrip.durationMinutes);
+        }
+    }
+    @Test public void hourOnlyDurationAndMissingChargeDurationAreNotInvented() {
+        VehicleTelemetry t = TelemetryParser.parse("{\"data\":{\"telemetry\":{},\"lastTripInfo\":{\"myTrip\":{\"duration\":{\"hours\":2}},\"lastChargeTrip\":{}}}}", "VIN", "PLATE");
+        assertEquals(120, t.myTrip.durationMinutes);
+        assertEquals(0, t.lastChargeTrip.durationMinutes);
+    }
+    @Test public void vehicleOdometerDoesNotComeFromTripRecords() {
+        VehicleTelemetry telemetry = TelemetryParser.parse("{\"data\":{\"telemetry\":{\"odometerStatus\":{\"odometerStatusContent\":{\"odometer\":{\"odometerValue\":16387900}}}},\"lastTripInfo\":{\"myTrip\":{\"distance\":4500},\"currentTrip\":{\"distance\":1200}}}}", "VIN", "PLATE");
+        assertEquals(16387L, telemetry.odometerKm);
+        assertNotEquals(telemetry.myTrip.distanceKm, telemetry.odometerKm, 0.001);
+    }
+    @Test public void missingOdometerDoesNotInventAMileage() {
+        assertEquals(0L, TelemetryParser.parse("{\"data\":{\"telemetry\":{},\"lastTripInfo\":{\"myTrip\":{\"distance\":100000}}}}", "VIN", "PLATE").odometerKm);
+    }
+    @Test public void explicitKilometersAreNotMistakenForMeters() {
+        assertEquals(75000L, TelemetryParser.parse("{\"data\":{\"telemetry\":{\"odometerKm\":75000}}}", "VIN", "PLATE").odometerKm);
+    }
     @Test
     public void testReadyToDriveFromVehicleStatus() {
         assertTrue(TelemetryParser.parse("{\"data\":{\"telemetry\":{\"vehicleStatus\":{\"vehicleStatusValueEnum\":\"READY\"}}}}", "VIN", "PLATE").isReadyToDrive);
@@ -114,7 +160,8 @@ public class TelemetryParserTest {
                 "\"odometerStatusContent\":{\"odometer\":{\"odometerValue\":536384}}}}}}";
         VehicleTelemetry telemetry = TelemetryParser.parse(json, "VIN", "PLATE");
         assertEquals(536L, telemetry.odometerKm);
-        assertEquals(536.384, telemetry.myTrip.distanceKm, 0.001);
+        // A lifetime odometer is not the distance of a missing My Trip record.
+        assertEquals(0.0, telemetry.myTrip.distanceKm, 0.001);
     }
 
     @Test

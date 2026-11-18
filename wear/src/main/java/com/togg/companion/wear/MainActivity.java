@@ -210,7 +210,9 @@ public class MainActivity extends Activity implements WatchDataStore.OnDataChang
         tvRangeKm.setText(t.rangeKm + " km menzil");
         if (t.isCharging) {
             tvBatterySoc.setTextColor(getColor(R.color.status_green));
-            tvChargingStatus.setText(String.format(Locale.getDefault(), "ϟ Şarj Oluyor (%.1f kW)", t.chargePowerKw));
+            tvChargingStatus.setText(t.chargePowerKw >= 0 && Double.isFinite(t.chargePowerKw)
+                    ? "Şarj oluyor- " + new java.text.DecimalFormat("0.##").format(t.chargePowerKw) + "kW"
+                    : "Şarj oluyor");
             tvChargingStatus.setTextColor(getColor(R.color.status_green));
         } else {
             tvBatterySoc.setTextColor(getColor(R.color.white));

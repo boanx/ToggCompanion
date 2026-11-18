@@ -2,8 +2,6 @@ package com.togg.companion.ui;
 
 import android.app.Activity;
 import android.app.AlertDialog;
-import android.app.job.JobInfo;
-import android.app.job.JobScheduler;
 import android.Manifest;
 import android.bluetooth.BluetoothDevice;
 import android.content.pm.PackageManager;
@@ -17,12 +15,10 @@ import android.content.ClipData;
 import android.graphics.Typeface;
 import android.graphics.Bitmap;
 import android.graphics.Canvas;
-import android.graphics.Rect;
 import android.net.Uri;
 import android.os.Bundle;
 import android.view.LayoutInflater;
 import android.view.View;
-import android.view.PixelCopy;
 import android.widget.Button;
 import android.widget.CheckBox;
 import android.widget.EditText;
@@ -56,8 +52,6 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
-import java.io.File;
-import java.io.FileOutputStream;
 
 import androidx.swiperefreshlayout.widget.SwipeRefreshLayout;
 
@@ -72,8 +66,8 @@ import com.togg.companion.core.VehicleBleManager;
 import com.togg.companion.data.SecureTokenStorage;
 import com.togg.companion.data.TelemetryDatabaseHelper;
 import com.togg.companion.data.remote.TvaApiClient;
-import com.togg.companion.data.remote.AbrpClient;
-import com.togg.companion.service.AbrpJobService;
+import com.togg.companion.core.AppLog;
+import com.togg.companion.service.AbrpSyncService;
 import com.togg.companion.wearable.WearSyncManager;
 import com.togg.companion.widget.ToggAppWidgetProvider;
 
@@ -117,6 +111,8 @@ public final class MainActivity extends Activity {
     private TextView tvSyncStatus;
 
     // 7 Tabs Navigation Elements
+    public static final String EXTRA_DIRECTIONS = "open_directions";
+    private DirectionsPage directionsPage;
     private TextView[] tabButtons;
     private View[] tabPages;
     private int selectedTabIndex = 0;
@@ -171,7 +167,7 @@ public final class MainActivity extends Activity {
 
     // Page 6: Sürüş İstatistikleri
     private TextView tvDriveMode;
-    private TextView tvOdometer;
+    private LinearLayout driveOdometerContainer;
     private TextView tvTripDist;
     private TextView tvTripDur;
     private TextView tvTripConsumption;
@@ -254,13 +250,15 @@ public final class MainActivity extends Activity {
         apiClient = new TvaApiClient(storage);
 
         bindViews();
+        directionsPage = new DirectionsPage(this, storage);
+        ((LinearLayout) findViewById(R.id.page_directions)).addView(directionsPage.create(() -> showSendToGezDialog(null)));
         setupWindowInsets();
         setupSwipeRefresh();
         setupListeners();
         updateBleStatus();
 
         // Default to Tab 0 (Ana Sayfa)
-        selectTab(0);
+        selectTab(getIntent().getBooleanExtra(EXTRA_DIRECTIONS, false) ? 7 : 0);
 
         isHeadlightsOn = storage.isHeadlightsOn();
         renderQuickActionsBar();
@@ -307,6 +305,7 @@ public final class MainActivity extends Activity {
     protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
         setIntent(intent);
+        if (intent != null && intent.getBooleanExtra(EXTRA_DIRECTIONS, false)) selectTab(7);
         if (intent != null && ACTION_WIDGET_REFRESH.equals(intent.getAction())) refreshTelemetry();
         handleActionIntent(intent);
         handleDigitalKeyIntent(intent);
@@ -333,6 +332,9 @@ public final class MainActivity extends Activity {
     @Override
     protected void onResume() {
         super.onResume();
+        AbrpSyncService.cancelLegacyJobs(this);
+        if (storage != null && storage.isAbrpEnabled() && !AbrpSyncService.isRunning()) AbrpSyncService.start(this);
+        abrpUiHandler.removeCallbacks(abrpUiTick); abrpUiHandler.post(abrpUiTick);
         renderDigitalKeyCard();
     }
 
@@ -348,7 +350,6 @@ public final class MainActivity extends Activity {
         tvVehicleTitle.setClickable(true);
         tvVehicleTitle.setFocusable(true);
         tvVehicleTitle.setOnClickListener(v -> showEditVehicleNameDialog());
-        findViewById(R.id.btn_send_route).setOnClickListener(v -> showSendToGezDialog(null));
         tvVehiclePlate = findViewById(R.id.tv_vehicle_plate);
         tvVehicleVin = findViewById(R.id.tv_vehicle_vin);
         tvAppRefreshTime = findViewById(R.id.tv_app_refresh_time);
@@ -362,7 +363,8 @@ public final class MainActivity extends Activity {
                 findViewById(R.id.tab_tires),
                 findViewById(R.id.tab_security),
                 findViewById(R.id.tab_drive),
-                findViewById(R.id.tab_location)
+                findViewById(R.id.tab_location),
+                findViewById(R.id.tab_directions)
         };
 
         // 7 Corresponding Page Containers
@@ -373,7 +375,8 @@ public final class MainActivity extends Activity {
                 findViewById(R.id.page_tires),
                 findViewById(R.id.page_security),
                 findViewById(R.id.page_drive),
-                findViewById(R.id.page_location)
+                findViewById(R.id.page_location),
+                findViewById(R.id.page_directions)
         };
 
         // Page 0: Ana Sayfa
@@ -425,7 +428,7 @@ public final class MainActivity extends Activity {
         tvDriveMode = findViewById(R.id.tv_drive_mode);
         tvDriveMode.setClickable(false);
         tvDriveMode.setFocusable(false);
-        tvOdometer = findViewById(R.id.tv_odometer);
+        driveOdometerContainer = findViewById(R.id.drive_odometer_container);
         tvTripDist = findViewById(R.id.tv_trip_dist);
         tvTripDur = findViewById(R.id.tv_trip_dur);
         tvTripConsumption = findViewById(R.id.tv_trip_consumption);
@@ -851,19 +854,19 @@ public final class MainActivity extends Activity {
                 || access == VehicleBleManager.AccessState.AUTHENTICATING
                 || access == VehicleBleManager.AccessState.PREPARING_KEY
                 || access == VehicleBleManager.AccessState.FETCHING_CERTIFICATE) {
-            Toast.makeText(this, bleManager.getAccessStatusText(), Toast.LENGTH_LONG).show();
+            Toast.makeText(this, "Dijital anahtar işlemi sürüyor…", Toast.LENGTH_LONG).show();
             return false;
         }
         if (bleManager.isGattReady()) {
             new AlertDialog.Builder(this).setTitle("Smart Access oturumu gerekli")
-                    .setMessage(bleManager.getAccessStatusText())
+                    .setMessage("Araç kontrolü için dijital anahtarınızı yetkilendirin.")
                     .setPositiveButton("Oturumu yetkilendir", (d, w) -> authenticateSmartAccess())
                     .setNeutralButton("Kurulum", (d, w) -> showSmartAccessSetupDialog())
                     .setNegativeButton("İptal", null).show();
             return false;
         }
         new AlertDialog.Builder(this).setTitle("Bluetooth Bağlantısı Gerekli")
-                .setMessage("Kapı, bagaj ve e-Motor komutları için Togg Smart Access BLE GATT servisi gerekir. Medya Bluetooth eşleşmesi yeterli değildir.\n\nAraç yakınında Smart Access BLE beacon'ını tarayın.")
+                .setMessage("Araç kontrolü için aracın yakınında Bluetooth bağlantısı kurun.")
                 .setPositiveButton("Smart Access Tara", (d, w) -> showBleConnectionDialog())
                 .setNegativeButton("İptal", null).show();
         return false;
@@ -873,7 +876,7 @@ public final class MainActivity extends Activity {
         if (!requireBleConnection()) return;
         bleManager.setTelemetry(currentTelemetry);
         bleManager.sendCommand(command, (success, message, updated) -> runOnUiThread(() -> {
-            Toast.makeText(this, message, Toast.LENGTH_LONG).show();
+            Toast.makeText(this, AppLog.userMessage(this, "BLE", message, "İşlem tamamlanamadı. Bağlantıyı ve dijital anahtar kurulumunu kontrol edin."), Toast.LENGTH_LONG).show();
             updateBleStatus();
             if (!success || updated == null) return;
             onVehicleCommandCompleted(updated);
@@ -911,13 +914,13 @@ public final class MainActivity extends Activity {
                 color = R.color.status_green;
                 break;
             case TRANSPORT_READY:
-                status = "BLE GATT bağlı · Yetkilendirme gerekli";
+                status = "Bluetooth bağlı · Yetkilendirme gerekli";
                 break;
             case PREPARING_KEY:
                 status = "Smart Access anahtarı hazırlanıyor...";
                 break;
             case FETCHING_CERTIFICATE:
-                status = "Araç erişim sertifikası alınıyor...";
+                status = "Dijital anahtar hazırlanıyor...";
                 break;
             case AUTHENTICATING:
                 status = "Smart Access oturumu yetkilendiriliyor...";
@@ -926,7 +929,7 @@ public final class MainActivity extends Activity {
                 status = "Komut gönderildi · Araç sonucu bekleniyor...";
                 break;
             case ERROR:
-                status = "Smart Access: " + bleManager.getAccessStatusText();
+                status = "Dijital anahtar yetkilendirilemedi. Kurulumu kontrol edin.";
                 color = R.color.status_red;
                 break;
             default:
@@ -941,7 +944,7 @@ public final class MainActivity extends Activity {
                 break;
         }
         String result = bleManager.getLastCommandResult();
-        if (result != null && !result.trim().isEmpty()) status += "\nSon işlem: " + result;
+
         tvBleStatus.setText(status);
         tvBleStatus.setTextColor(getColor(color));
     }
@@ -960,38 +963,26 @@ public final class MainActivity extends Activity {
         bleManager.authenticateSmartAccess((success, message) -> runOnUiThread(() -> {
             if (isFinishing() || isDestroyed()) return;
             updateBleStatus();
-            Toast.makeText(this, message, Toast.LENGTH_LONG).show();
+            Toast.makeText(this, AppLog.userMessage(this, "BLE", message, "İşlem tamamlanamadı. Bağlantıyı ve dijital anahtar kurulumunu kontrol edin."), Toast.LENGTH_LONG).show();
         }));
         updateBleStatus();
     }
 
     private void showSmartAccessDiagnostics() {
-        String diagnostics = bleManager.getDiagnosticsText();
-        TextView text = new TextView(this);
-        text.setText(diagnostics);
-        text.setTextIsSelectable(true);
-        text.setPadding(dpToPx(20), dpToPx(12), dpToPx(20), dpToPx(12));
-        ScrollView scroll = new ScrollView(this);
-        scroll.addView(text);
-        new AlertDialog.Builder(this).setTitle("Smart Access tanı bilgisi")
-                .setView(scroll)
-                .setPositiveButton("Paylaş", (dialog, which) -> {
-                    Intent share = new Intent(Intent.ACTION_SEND).setType("text/plain")
-                            .putExtra(Intent.EXTRA_SUBJECT, "Togg Smart Access tanı bilgisi")
-                            .putExtra(Intent.EXTRA_TEXT, diagnostics);
-                    startActivity(Intent.createChooser(share, "Tanı bilgisini paylaş"));
-                })
-                .setNegativeButton("Kapat", null).show();
+        AppLog.event(this, "BLE", bleManager.getDiagnosticsText());
+        AppLog.share(this);
     }
 
     private void showBleConnectionDialog() {
         boolean needsPermission = Build.VERSION.SDK_INT >= 31 && (!bleManager.hasConnectPermission()
-                || checkSelfPermission(Manifest.permission.BLUETOOTH_SCAN) != PackageManager.PERMISSION_GRANTED);
+                || checkSelfPermission(Manifest.permission.BLUETOOTH_SCAN) != PackageManager.PERMISSION_GRANTED)
+                || (Build.VERSION.SDK_INT < 31 && checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED);
         if (needsPermission) {
             new AlertDialog.Builder(this).setTitle("Bluetooth İzni Gerekli")
                     .setMessage("Eşleşmiş cihazları görmek ve BLE taraması için Bluetooth izinleri gerekli.")
                     .setPositiveButton("Bluetooth İzinlerini Ver", (d, w) -> requestPermissions(
-                            new String[]{Manifest.permission.BLUETOOTH_CONNECT, Manifest.permission.BLUETOOTH_SCAN}, 301))
+                            (Build.VERSION.SDK_INT >= 31 ? new String[]{Manifest.permission.BLUETOOTH_CONNECT, Manifest.permission.BLUETOOTH_SCAN}
+                                    : new String[]{Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION}), 301))
                     .setNegativeButton("İptal", null).show();
             return;
         }
@@ -999,11 +990,12 @@ public final class MainActivity extends Activity {
         List<BluetoothDevice> allDevices = bleManager.getAllPairedDevices();
         List<BluetoothDevice> otherDevices = new ArrayList<>();
         List<String> options = new ArrayList<>();
-        for (BluetoothDevice device : devices) options.add(device.getName() + (bleManager.isDeviceConnected(device) ? "  [Bağlı]" : " [Eşleşmiş]"));
-        int scanIndex = options.size(); options.add(" Çevredeki BLE Cihazlarını Tara");
+        int scanIndex = options.size(); options.add(" Smart Access cihazını tara");
+        final int pairedStartIndex = options.size();
+        for (BluetoothDevice device : devices) options.add(bleManager.getDiscoveryLabel(device));
         int setupIndex = options.size(); options.add("Smart Access kurulumu");
         int authorizeIndex = options.size(); options.add("Smart Access oturumunu yetkilendir");
-        int diagnosticsIndex = options.size(); options.add("Tanı bilgisini görüntüle / paylaş");
+        int diagnosticsIndex = options.size(); options.add("Uygulama günlüğünü paylaş");
         for (BluetoothDevice device : allDevices) if (!devices.contains(device)) otherDevices.add(device);
         int otherIndex = -1;
         if (!otherDevices.isEmpty()) { otherIndex = options.size(); options.add(" Diğer Eşleşmiş Bluetooth Cihazları"); }
@@ -1018,12 +1010,13 @@ public final class MainActivity extends Activity {
         final int demoChoice = demoIndex, disconnectChoice = disconnectIndex, openChoice = openIndex;
         new AlertDialog.Builder(this).setTitle("Araç Smart Access BLE Bağlantısı")
                 .setItems(options.toArray(new String[0]), (dialog, which) -> {
-                    if (which < pairedCount) bleManager.connectToVehicle(this, devices.get(which));
+                    if (which >= pairedStartIndex && which < pairedStartIndex + pairedCount)
+                        bleManager.connectToVehicle(this, devices.get(which - pairedStartIndex));
                     else if (which == scanChoice) {
                         Toast.makeText(this, "Çevredeki Togg BLE cihazları taranıyor...", Toast.LENGTH_SHORT).show();
                         bleManager.scanForToggDevices(found -> {
                             List<String> names = new ArrayList<>();
-                            for (BluetoothDevice item : found) names.add(item.getName() == null ? item.getAddress() : item.getName());
+                            for (BluetoothDevice item : found) names.add(bleManager.getDiscoveryLabel(item));
                             if (names.isEmpty()) { Toast.makeText(this, "Togg BLE cihazı bulunamadı.", Toast.LENGTH_SHORT).show(); return; }
                             new AlertDialog.Builder(this).setTitle("Bulunan Togg BLE Cihazları").setItems(names.toArray(new String[0]),
                                     (d, choice) -> bleManager.connectToVehicle(this, found.get(choice))).setNegativeButton("İptal", null).show();
@@ -1128,13 +1121,13 @@ public final class MainActivity extends Activity {
                 currentTelemetry = updatedTelemetry;
                 dbHelper.insert(updatedTelemetry);
                 storage.saveActiveTelemetry(updatedTelemetry);
-                maybeSendAbrp(updatedTelemetry);
                 ToggAppWidgetProvider.updateAllWidgets(MainActivity.this);
                 storage.setLastRefresh(System.currentTimeMillis());
                 if (updatedTelemetry.timestampMillis > 0) {
                     storage.setLastSync(updatedTelemetry.timestampMillis);
                 }
                 runOnUiThread(() -> {
+                    AppLog.event(MainActivity.this, "TELEMETRY", "DRIVE_MODE " + (updatedTelemetry.driveMode.isEmpty() ? "UNKNOWN" : updatedTelemetry.driveMode) + " source=" + (isLive ? "CLOUD" : "CACHE_OR_DEMO") + " vehicleDataTime=" + updatedTelemetry.timestampMillis);
                     renderTelemetry(updatedTelemetry, !isLive);
                     swipeRefresh.setRefreshing(false);
                     if (isLive) {
@@ -1151,11 +1144,11 @@ public final class MainActivity extends Activity {
                 runOnUiThread(() -> {
                     renderTelemetry(fallback, true);
                     swipeRefresh.setRefreshing(false);
-                    Toast.makeText(MainActivity.this, message, Toast.LENGTH_LONG).show();
+                    Toast.makeText(MainActivity.this, AppLog.userMessage(MainActivity.this, "TELEMETRY", message, "Araç verileri alınamadı. Bağlantınızı ve oturumunuzu kontrol edin."), Toast.LENGTH_LONG).show();
 
                     // If VIN is missing, default demo VIN, or vehicle permission error
                     if (storage.isDemoVin() || (message != null && (message.contains("Şasi") || message.contains("şasi") || message.contains("VIN") || message.contains("permission") || message.contains("access")))) {
-                        showVinInputDialog(message);
+                        showVinInputDialog("Araç bilgilerinizi ve erişim yetkinizi kontrol edin.");
                     } else if (message != null && (message.contains("Oturum Süresi Doldu") || !storage.hasValidToken())) {
                         new AlertDialog.Builder(MainActivity.this)
                                 .setTitle("Togg ID Girişi")
@@ -1198,14 +1191,14 @@ public final class MainActivity extends Activity {
         // 1. Batarya & Şarj
         tvBatterySoc.setText(t.batterySocPercent + "%");
         tvRangeKm.setText(t.estimatedRangeKm + " km");
-        tvChargingStatus.setText(t.isCharging
-                ? getString(R.string.charging_active) + " (" + String.format("%.1f", t.chargePowerKw) + " kW)"
-                : getString(R.string.not_charging));
+        tvChargingStatus.setText(com.togg.companion.core.ChargingInfo.statusText(t.isCharging, t.chargePowerKw));
         if (tvChargeMode != null) {
-            tvChargeMode.setText(t.chargeMode != null ? t.chargeMode : "AC Ev Şarjı");
+            tvChargeMode.setText(t.chargeMode != null ? t.chargeMode : "Bilgi yok");
         }
         if (tvChargePower != null) {
-            tvChargePower.setText(String.format("%.1f kW", t.chargePowerKw));
+            ((View) tvChargePower.getParent()).setVisibility(t.isCharging
+                    && !com.togg.companion.core.ChargingInfo.knownPower(t.chargePowerKw) ? View.GONE : View.VISIBLE);
+            tvChargePower.setText(com.togg.companion.core.ChargingInfo.powerText(t.chargePowerKw));
         }
         if (tvBatteryCapacity != null) {
             tvBatteryCapacity.setText(String.format("%.1f kWh", t.batteryTotalCapacityKwh));
@@ -1256,7 +1249,10 @@ public final class MainActivity extends Activity {
         if (tvDriveMode != null) {
             tvDriveMode.setText(formatDriveMode(t.driveMode));
         }
-        tvOdometer.setText(t.odometerKm + " km");
+        if (driveOdometerContainer != null) {
+            driveOdometerContainer.removeAllViews();
+            driveOdometerContainer.addView(buildOdometerCard(t));
+        }
         updateTripStatsUi();
 
         // 7. Konum & Park
@@ -1375,7 +1371,6 @@ public final class MainActivity extends Activity {
 
         String msg = "Trumore uygulamasından yeni bir dijital anahtar paylaşımı algılandı:\n\n"
                 + "• Plaka / Araç: " + key.getVehicleDisplay() + "\n"
-                + "• Güvenli Kod (SE-ID): " + key.seId + "\n"
                 + "• Kullanıcı: " + key.recipientName + "\n"
                 + "• Geçerlilik: " + key.getRemainingTimeDisplay() + "\n"
                 + "• Yetkiler: " + key.getPermissionsSummary() + "\n\n"
@@ -1417,12 +1412,12 @@ public final class MainActivity extends Activity {
         setupAccess.setText("Smart Access kurulumu ve yetkilendirme");
         layout.addView(setupAccess);
         Button diagnostics = new Button(this);
-        diagnostics.setText("Smart Access tanı bilgisini görüntüle");
+        diagnostics.setText("Uygulama günlüğünü paylaş");
         layout.addView(diagnostics);
 
         if (currentKey != null) {
             TextView tvCur = new TextView(this);
-            tvCur.setText("Mevcut Kayıt:\n• SE-ID: " + currentKey.seId + "\n• Araç: " + currentKey.getVehicleDisplay() + "\n• Süre: " + currentKey.getRemainingTimeDisplay() + "\n• Durum: " + (currentKey.isValid() ? "Yerel kayıt geçerli" : currentKey.isExpired() ? "Süresi dolmuş" : "Aktivasyon bekleniyor"));
+            tvCur.setText("Mevcut Kayıt:\n• Araç: " + currentKey.getVehicleDisplay() + "\n• Süre: " + currentKey.getRemainingTimeDisplay() + "\n• Durum: " + (currentKey.isValid() ? "Yerel kayıt geçerli" : currentKey.isExpired() ? "Süresi dolmuş" : "Aktivasyon bekleniyor"));
             tvCur.setTextColor(getColor(R.color.text_primary));
             tvCur.setTextSize(13);
             tvCur.setPadding(0, 0, 0, dpToPx(10));
@@ -1430,13 +1425,13 @@ public final class MainActivity extends Activity {
         }
 
         TextView tvPrompt = new TextView(this);
-        tvPrompt.setText("Trumore'dan kopyalanan davet linki, SMS metni veya referans kodu (Örn: SE-8F4219):");
+        tvPrompt.setText("Trumore'dan paylaşılan dijital anahtar davetini yapıştırın:");
         tvPrompt.setTextColor(getColor(R.color.text_secondary));
         tvPrompt.setTextSize(12);
         layout.addView(tvPrompt);
 
         final EditText etKeyInput = new EditText(this);
-        etKeyInput.setHint("https://trumore.app/keysharingInvitation?seId=... veya SE-XXXXXX");
+        etKeyInput.setHint("Davet bağlantısı veya mesajı");
         etKeyInput.setTextSize(14);
         layout.addView(etKeyInput);
 
@@ -1506,7 +1501,6 @@ public final class MainActivity extends Activity {
         if (tvPhoneKeyInfo != null) {
             if (key != null && key.isValid()) {
                 String info = "Araç: " + key.getVehicleDisplay() + "\n"
-                        + (key.seId.isEmpty() ? "Erişim: Telefon BLE oturumu\n" : "SE-ID: " + key.seId + "\n")
                         + "Kullanıcı: " + key.recipientName + "\n"
                         + "Kalan Süre: " + key.getRemainingTimeDisplay() + "\n"
                         + "Yetkiler: " + key.getPermissionsSummary();
@@ -1582,21 +1576,7 @@ public final class MainActivity extends Activity {
     }
 
     private String formatDriveMode(String rawMode) {
-        if (rawMode == null || rawMode.trim().isEmpty()) {
-            return "Sürüş Modu: Konfor";
-        }
-        String m = rawMode.toLowerCase(Locale.ROOT);
-        if (m.contains("eco")) {
-            return "Sürüş Modu: Eco";
-        } else if (m.contains("sport") || m.contains("spor")) {
-            return "Sürüş Modu: Spor";
-        } else if (m.contains("comfort") || m.contains("konfor")) {
-            return "Sürüş Modu: Konfor";
-        } else if (m.contains("individual") || m.contains("bireysel")) {
-            return "Sürüş Modu: Bireysel";
-        }
-        String cleaned = rawMode.replace("drivemode_", "").replace("drive_mode_", "").replace("_", " ").trim();
-        return "Sürüş Modu: " + cleaned;
+        return "Sürüş Modu: " + com.togg.companion.core.DriveMode.label(rawMode);
     }
 
     private void showDriveModeSelector() {
@@ -1697,148 +1677,81 @@ public final class MainActivity extends Activity {
     private void renderHomeCards() {
         if (homeCardsContainer == null) return;
         homeCardsContainer.removeAllViews();
+        abrpHomeStatus = null;
         VehicleTelemetry t = currentTelemetry;
         if (t == null) return;
 
-        String orderStr = storage.getHomeCardsOrder();
-        String visibleStr = storage.getHomeCardsVisible();
-        List<String> order = new ArrayList<>(Arrays.asList(orderStr.split(",")));
-        Set<String> visibleSet = new HashSet<>(Arrays.asList(visibleStr.split(",")));
-
-        List<View> gridCards = new ArrayList<>();
-        View fullWidthLocationCard = null;
-
-        for (String cardKey : order) {
-            String key = cardKey.trim();
-            if (CARD_DIGITAL_KEY.equals(key)) continue;
-            if (CARD_CONTROLS.equals(key) || CARD_CLIMATE.equals(key)) continue;
-            if (!visibleSet.contains(key)) continue;
-
-            if (CARD_LOCATION.equals(key)) {
-                fullWidthLocationCard = buildLocationCard(t);
-            } else {
-                View card = buildHomeCard(key, t);
-                if (card != null) {
-                    gridCards.add(card);
-                }
+        android.content.res.Configuration config = getResources().getConfiguration();
+        int columns = config.screenWidthDp >= 380 && config.fontScale <= 1.25f ? 2 : 1;
+        for (List<String> keys : com.togg.companion.core.HomeCardLayout.rows(storage.getHomeCardsOrder(), storage.getHomeCardsVisible(), columns)) {
+            if (keys.size() == 1 && com.togg.companion.core.HomeCardLayout.fullWidth(keys.get(0))) {
+                String key = keys.get(0);
+                homeCardsContainer.addView("location".equals(key) ? buildLocationCard(t)
+                        : "odometer".equals(key) ? buildOdometerCard(t) : buildAbrpCard(t));
+                continue;
             }
-        }
-
-        // Keep cards readable on narrow displays and at large system font scales.
-        android.content.res.Configuration layoutConfig = getResources().getConfiguration();
-        int columns = layoutConfig.screenWidthDp >= 380 && layoutConfig.fontScale <= 1.25f ? 2 : 1;
-        for (int i = 0; i < gridCards.size(); i += columns) {
-            LinearLayout row = new LinearLayout(this);
-            row.setOrientation(LinearLayout.HORIZONTAL);
-            row.setLayoutParams(new LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-            row.setWeightSum(columns);
-
-            View card1 = gridCards.get(i);
-            LinearLayout.LayoutParams p1 = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1.0f);
-            p1.bottomMargin = dpToPx(12);
-            if (columns == 2 && i + 1 < gridCards.size()) {
-                p1.setMarginEnd(dpToPx(6));
+            LinearLayout row = new LinearLayout(this); row.setOrientation(LinearLayout.HORIZONTAL);
+            row.setLayoutParams(new LinearLayout.LayoutParams(-1, -2)); row.setWeightSum(columns);
+            for (int i = 0; i < keys.size(); i++) {
+                View card = buildHomeCard(keys.get(i), t); if (card == null) continue;
+                LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1);
+                params.bottomMargin = dpToPx(12);
+                if (i > 0) params.setMarginStart(dpToPx(6));
+                if (i < keys.size() - 1) params.setMarginEnd(dpToPx(6));
+                row.addView(card, params);
             }
-            card1.setLayoutParams(p1);
-            row.addView(card1);
-
-            if (columns == 2 && i + 1 < gridCards.size()) {
-                View card2 = gridCards.get(i + 1);
-                LinearLayout.LayoutParams p2 = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1.0f);
-                p2.bottomMargin = dpToPx(12);
-                p2.setMarginStart(dpToPx(6));
-                card2.setLayoutParams(p2);
-                row.addView(card2);
-            }
-
             homeCardsContainer.addView(row);
         }
-
-        // In-App Embedded Google Maps Location Card spans full width
-        if (fullWidthLocationCard != null) {
-            homeCardsContainer.addView(fullWidthLocationCard);
-        }
-        homeCardsContainer.addView(buildAbrpCard(t));
     }
 
+    private String formatVehicleOdometer(VehicleTelemetry telemetry) {
+        if (telemetry == null || telemetry.odometerKm <= 0 || storage.isDemoMode() || storage.isDemoVin()) return "—";
+        return java.text.NumberFormat.getIntegerInstance(new Locale("tr", "TR")).format(telemetry.odometerKm) + " km";
+    }
+    private View buildOdometerCard(VehicleTelemetry telemetry) {
+        LinearLayout card = new LinearLayout(this); card.setOrientation(LinearLayout.VERTICAL);
+        card.setBackgroundResource(R.drawable.card_bg);
+        card.setPadding(dpToPx(18), dpToPx(16), dpToPx(18), dpToPx(16));
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(-1, -2); params.bottomMargin = dpToPx(12); card.setLayoutParams(params);
+        TextView title = new TextView(this); title.setText(R.string.total_odometer);
+        title.setTextSize(14); title.setTextColor(getColor(R.color.accent_togg)); card.addView(title);
+        String reading = formatVehicleOdometer(telemetry);
+        TextView value = new TextView(this); value.setText(reading); value.setTextSize(28);
+        value.setTextColor(getColor(R.color.text_primary)); value.setTypeface(null, Typeface.BOLD); card.addView(value);
+        TextView time = new TextView(this); time.setTextSize(12); time.setTextColor(getColor(R.color.text_secondary));
+        time.setText("—".equals(reading) ? "Araç kilometre bilgisi henüz alınamadı."
+                : telemetry.timestampMillis > 0 ? "Son araç verisi: " + formatTrumoreSyncTime(telemetry.timestampMillis) : "Son alınan araç kilometresi");
+        card.addView(time);
+        return card;
+    }
+
+    private TextView abrpHomeStatus;
+    private final android.os.Handler abrpUiHandler = new android.os.Handler(android.os.Looper.getMainLooper());
+    private final Runnable abrpUiTick = new Runnable() {
+        @Override public void run() { updateAbrpHomeStatus(); if (directionsPage != null) directionsPage.render(); abrpUiHandler.postDelayed(this, 1000); }
+    };
+    private void updateAbrpHomeStatus() {
+        if (abrpHomeStatus == null) return;
+        boolean active = storage.isAbrpEnabled() && AbrpSyncService.isRunning();
+        abrpHomeStatus.setText("Veri aktarımı: " + (active ? "Aktif" : "Deaktif")
+                + "\nSon gönderim: " + (storage.getAbrpLastSync() > 0
+                ? new SimpleDateFormat("dd.MM.yyyy HH:mm:ss", Locale.getDefault()).format(new Date(storage.getAbrpLastSync())) : "Henüz gönderilmedi"));
+    }
     private View buildAbrpCard(VehicleTelemetry t) {
         LinearLayout card = new LinearLayout(this);
         card.setOrientation(LinearLayout.VERTICAL);
         card.setBackgroundResource(R.drawable.card_bg);
         card.setPadding(dpToPx(16), dpToPx(16), dpToPx(16), dpToPx(16));
-        LinearLayout.LayoutParams cardParams = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        cardParams.bottomMargin = dpToPx(14);
-        card.setLayoutParams(cardParams);
-        card.setClickable(true);
-        card.setFocusable(true);
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(-1, -2);
+        params.bottomMargin = dpToPx(14); card.setLayoutParams(params);
+        card.setClickable(true); card.setFocusable(true);
         card.setOnClickListener(v -> showAbrpSettingsDialog());
-
-        TextView title = new TextView(this);
-        title.setText("ABRP Canlı Rota Planlayıcı");
-        title.setTextColor(getColor(R.color.accent_togg));
-        title.setTextSize(14);
-        title.setTypeface(null, Typeface.BOLD);
-        card.addView(title);
-
-        TextView status = new TextView(this);
-        String abrpStatus = storage.isAbrpEnabled() ? " 4 dk telemetri" : "⚪ Telemetri kapalı";
-        if (storage.isAbrpRouteSyncEnabled()) {
-            abrpStatus += " • ~4 dk otomatik rota kontrolü";
-            if (!storage.getAbrpActiveStopName().isEmpty()) abrpStatus += "\nABRP rotası: " + storage.getAbrpActiveStopName();
-            abrpStatus += "\n" + storage.getAbrpRouteStatus();
-        } else abrpStatus += " • Rota aktarımı kapalı";
-        status.setText(abrpStatus);
-        status.setTextColor(getColor(R.color.text_secondary));
-        status.setTextSize(12);
-        LinearLayout.LayoutParams statusParams = new LinearLayout.LayoutParams(-1, -2);
-        statusParams.topMargin = dpToPx(6);
-        card.addView(status, statusParams);
-
-        TextView telemetry = new TextView(this);
-        String consumption = t.lastTripAvgConsumption > 0
-                ? String.format(Locale.US, "%.1f", t.lastTripAvgConsumption) : "16.8";
-        telemetry.setText("%" + t.batterySocPercent + " Batarya  •  " + consumption
-                + " kWh/100km  •  " + t.estimatedRangeKm + " km menzil");
-        telemetry.setTextColor(getColor(R.color.text_primary));
-        telemetry.setTextSize(13);
-        LinearLayout.LayoutParams telemetryParams = new LinearLayout.LayoutParams(-1, -2);
-        telemetryParams.topMargin = dpToPx(8);
-        card.addView(telemetry, telemetryParams);
-
-        LinearLayout buttons = new LinearLayout(this);
-        buttons.setOrientation(LinearLayout.HORIZONTAL);
-        buttons.setGravity(Gravity.CENTER_VERTICAL);
-        LinearLayout.LayoutParams buttonsParams = new LinearLayout.LayoutParams(-1, -2);
-        buttonsParams.topMargin = dpToPx(10);
-        card.addView(buttons, buttonsParams);
-
-        Button send = new Button(this);
-        send.setText("ϟ Şimdi Gönder");
-        send.setTextSize(11);
-        send.setOnClickListener(v -> sendAbrpTelemetry(currentTelemetry != null ? currentTelemetry : t, storage.getAbrpToken(), storage.getAbrpCapacity()));
-        Button open = new Button(this);
-        open.setText("ABRP'de Aç");
-        open.setTextSize(11);
-        open.setOnClickListener(v -> openAbrp());
-        Button settings = new Button(this);
-        settings.setText("Ayarlar");
-        settings.setTextSize(11);
-        settings.setOnClickListener(v -> showAbrpSettingsDialog());
-        buttons.addView(send, new LinearLayout.LayoutParams(0, dpToPx(44), 1));
-        buttons.addView(open, new LinearLayout.LayoutParams(0, dpToPx(44), 1));
-        buttons.addView(settings, new LinearLayout.LayoutParams(0, dpToPx(44), 1));
-
-        Button sendToGez = new Button(this);
-        sendToGez.setText("Akıllı cihazıma aktar");
-        sendToGez.setBackgroundResource(R.drawable.btn_gradient);
-        sendToGez.setTextColor(getColor(android.R.color.white));
-        sendToGez.setTypeface(null, Typeface.BOLD);
-        LinearLayout.LayoutParams gezParams = new LinearLayout.LayoutParams(-1, dpToPx(44));
-        gezParams.topMargin = dpToPx(10);
-        card.addView(sendToGez, gezParams);
-        sendToGez.setOnClickListener(v -> showSendToGezDialog(null));
+        TextView title = new TextView(this); title.setText("ABRP Senkronizasyonu");
+        title.setTextColor(getColor(R.color.accent_togg)); title.setTextSize(14);
+        title.setTypeface(null, Typeface.BOLD); card.addView(title);
+        abrpHomeStatus = new TextView(this);
+        abrpHomeStatus.setTextColor(getColor(R.color.text_secondary)); abrpHomeStatus.setTextSize(13);
+        card.addView(abrpHomeStatus); updateAbrpHomeStatus();
         return card;
     }
 
@@ -1851,13 +1764,6 @@ public final class MainActivity extends Activity {
             return;
         }
         vehicleRouteDialog = VehicleRouteDialog.show(this, storage, prefill);
-    }
-
-    private void openAbrp() {
-        Intent appIntent = getPackageManager().getLaunchIntentForPackage("com.iternio.abrpapp");
-        if (appIntent == null) appIntent = getPackageManager().getLaunchIntentForPackage("com.iternio.abrp");
-        try { startActivity(appIntent != null ? appIntent : new Intent(Intent.ACTION_VIEW, Uri.parse("https://abetterrouteplanner.com/"))); }
-        catch (Exception ignored) { startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse("https://abetterrouteplanner.com/"))); }
     }
 
     private View buildHomeCard(String key, VehicleTelemetry t) {
@@ -1912,7 +1818,7 @@ public final class MainActivity extends Activity {
                 card.addView(rangeTv);
 
                 TextView statusTv = new TextView(this);
-                statusTv.setText(t.isCharging ? String.format(Locale.US, "%.1f kW", t.chargePowerKw) : t.chargeMode);
+                statusTv.setText(t.isCharging ? com.togg.companion.core.ChargingInfo.statusText(true, t.chargePowerKw) : t.chargeMode);
                 statusTv.setTextColor(getColor(t.isCharging ? R.color.status_green : R.color.text_muted));
                 statusTv.setTextSize(13);
                 statusTv.setPadding(0, dpToPx(4), 0, 0);
@@ -2279,7 +2185,7 @@ public final class MainActivity extends Activity {
 
             @Override
             public void onPageFinished(WebView view, String url) {
-                scheduleMapSnapshotCapture(mapWebView);
+                scheduleMapSnapshotCapture(mapWebView, lat, lon);
             }
 
             private boolean handleExternalMapUrl(Uri uri) {
@@ -2317,7 +2223,7 @@ public final class MainActivity extends Activity {
 
         mapWebView.loadDataWithBaseURL("https://maps.google.com", mapHtml, "text/html", "UTF-8", null);
         card.addView(mapWebView);
-        mapWebView.postDelayed(() -> scheduleMapSnapshotCapture(mapWebView), 2800);
+        mapWebView.postDelayed(() -> scheduleMapSnapshotCapture(mapWebView, lat, lon), 2800);
         } else {
             TextView noLocation = new TextView(this);
             noLocation.setText("Araç konumu mevcut değil");
@@ -2341,47 +2247,31 @@ public final class MainActivity extends Activity {
         return card;
     }
 
-    private void scheduleMapSnapshotCapture(final WebView mapWebView) {
-        if (mapWebView == null || isFinishing() || isDestroyed()) return;
-        int width = mapWebView.getWidth();
-        int height = mapWebView.getHeight();
-        if (width <= 0) width = dpToPx(320);
-        if (height <= 0) height = dpToPx(190);
-        final int captureWidth = width;
-        final int captureHeight = height;
-        Bitmap bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888);
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && mapWebView.isAttachedToWindow()
-                && mapWebView.getWindowVisibility() == View.VISIBLE) {
-            try {
-                int[] location = new int[2];
-                mapWebView.getLocationInWindow(location);
-                android.view.Window window = getWindow();
-                PixelCopy.request(window, new Rect(location[0], location[1], location[0] + captureWidth, location[1] + captureHeight), bitmap, result -> {
-                    if (result == PixelCopy.SUCCESS) saveWidgetMapSnapshot(bitmap);
-                    else drawAndSaveWidgetMapSnapshot(mapWebView, captureWidth, captureHeight);
-                }, new Handler(Looper.getMainLooper()));
-                return;
-                } catch (Throwable ignored) { }
-        }
-        drawAndSaveWidgetMapSnapshot(mapWebView, captureWidth, captureHeight);
-    }
-
-    private void drawAndSaveWidgetMapSnapshot(WebView mapWebView, int width, int height) {
-        Bitmap bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888);
-        mapWebView.draw(new Canvas(bitmap));
-        saveWidgetMapSnapshot(bitmap);
-    }
-
-    private void saveWidgetMapSnapshot(Bitmap bitmap) {
-        new Thread(() -> {
-            File file = new File(getFilesDir(), "widget_map_snapshot.png");
-            try (FileOutputStream stream = new FileOutputStream(file)) {
-                bitmap.compress(Bitmap.CompressFormat.PNG, 90, stream);
-                stream.flush();
-                runOnUiThread(() -> ToggAppWidgetProvider.updateAllWidgets(MainActivity.this));
-            } catch (Exception ignored) { }
-            finally { bitmap.recycle(); }
-        }, "WidgetMapSnapshot").start();
+    private void scheduleMapSnapshotCapture(final WebView view, double lat, double lon) {
+        if (view == null || isFinishing() || isDestroyed() || !view.isShown() || !view.isAttachedToWindow()) return;
+        String vin = storage.getVin();
+        view.postVisualStateCallback(System.nanoTime(), new WebView.VisualStateCallback() {
+            @Override public void onComplete(long requestId) {
+                if (isFinishing() || isDestroyed() || !view.isShown() || !view.isAttachedToWindow()
+                        || view.getWidth() <= 0 || view.getHeight() <= 0 || !vin.equals(storage.getVin())) return;
+                int width = Math.min(640, view.getWidth());
+                float scale = (float) width / view.getWidth();
+                Bitmap bitmap = Bitmap.createBitmap(width, Math.max(1, Math.round(view.getHeight() * scale)), Bitmap.Config.ARGB_8888);
+                try {
+                    Canvas canvas = new Canvas(bitmap); canvas.scale(scale, scale);
+                    // Draw this map alone. Never copy pixels from the Activity window.
+                    view.draw(canvas);
+                } catch (Exception error) { bitmap.recycle(); AppLog.event(MainActivity.this, "MAP", "CAPTURE_FAILED"); return; }
+                android.content.Context app = getApplicationContext();
+                new Thread(() -> {
+                    try {
+                        com.togg.companion.widget.WidgetMapSnapshotStore.save(app, bitmap, vin, lat, lon);
+                        ToggAppWidgetProvider.updateAllWidgets(app);
+                    } catch (Exception error) { AppLog.event(app, "MAP", "CACHE_SAVE_FAILED"); }
+                    finally { bitmap.recycle(); }
+                }, "WidgetMapSnapshot").start();
+            }
+        });
     }
 
     private TextView createIconHeader(String emoji) {
@@ -2479,7 +2369,7 @@ public final class MainActivity extends Activity {
                 items.add(new CardItem(key, name, visibleSet.contains(key)));
             }
         }
-        String[] allKeys = {CARD_BATTERY, CARD_DRIVE, CARD_TIRES, CARD_LOCATION, CARD_12V};
+        String[] allKeys = com.togg.companion.core.HomeCardLayout.DEFAULT_ORDER.split(",");
         for (String ak : allKeys) {
             boolean exists = false;
             for (CardItem it : items) {
@@ -2580,15 +2470,13 @@ public final class MainActivity extends Activity {
                     visSb.append(it.key);
                 }
             }
-            storage.setHomeCardsOrder(orderSb.toString());
-            storage.setHomeCardsVisible(visSb.toString());
+            storage.setHomeCards(orderSb.toString(), visSb.toString());
             renderHomeCards();
             Toast.makeText(MainActivity.this, "Ana sayfa yerleşimi kaydedildi.", Toast.LENGTH_SHORT).show();
         });
 
         builder.setNeutralButton("Varsayılan", (dialog, which) -> {
-            storage.setHomeCardsOrder(SecureTokenStorage.DEFAULT_HOME_CARDS);
-            storage.setHomeCardsVisible(SecureTokenStorage.DEFAULT_HOME_CARDS);
+            storage.setHomeCards(SecureTokenStorage.DEFAULT_HOME_CARDS, SecureTokenStorage.DEFAULT_HOME_CARDS);
             renderHomeCards();
             Toast.makeText(MainActivity.this, "Varsayılan yerleşime sıfırlandı.", Toast.LENGTH_SHORT).show();
         });
@@ -2599,6 +2487,8 @@ public final class MainActivity extends Activity {
 
     private String getCardDisplayName(String key) {
         switch (key) {
+            case "odometer": return "Toplam Kilometre";
+            case "abrp": return "ABRP Senkronizasyonu";
             case CARD_BATTERY: return "ϟ Yüksek Voltaj Batarya";
             case CARD_DRIVE: return " Sürüş & Yolculuk";
             case CARD_TIRES: return " Lastik Basınçları (PSI)";
@@ -2687,23 +2577,20 @@ public final class MainActivity extends Activity {
         Button btnToggLogout = dialogView.findViewById(R.id.btn_togg_logout);
         EditText etPlate = dialogView.findViewById(R.id.et_plate);
         EditText etVin = dialogView.findViewById(R.id.et_vin);
-        EditText etOwnerId = dialogView.findViewById(R.id.et_owner_id);
-        EditText etToken = dialogView.findViewById(R.id.et_token);
-        CheckBox cbDemoMode = dialogView.findViewById(R.id.cb_demo_mode);
-        CheckBox cbAbrpEnabled = dialogView.findViewById(R.id.cb_abrp_enabled);
-        CheckBox cbAbrpRouteSync = dialogView.findViewById(R.id.cb_abrp_route_sync);
-        EditText etAbrpToken = dialogView.findViewById(R.id.et_abrp_token);
-        RadioGroup abrpCapacity = dialogView.findViewById(R.id.rg_abrp_capacity);
         TextView keyStatus = dialogView.findViewById(R.id.tv_settings_key_status);
         Button manageKey = dialogView.findViewById(R.id.btn_settings_manage_key);
         Button syncKey = dialogView.findViewById(R.id.btn_settings_sync_key);
         RadioGroup themeGroup = dialogView.findViewById(R.id.rg_app_theme);
         Button customizeCards = dialogView.findViewById(R.id.btn_settings_customize_cards);
         Button abrpShortcut = dialogView.findViewById(R.id.btn_settings_abrp_shortcut);
+        dialogView.findViewById(R.id.btn_settings_logs).setOnClickListener(v -> AppLog.share(this));
+        dialogView.findViewById(R.id.btn_settings_odometer_export).setOnClickListener(v -> {
+            dialogInstance.dismiss(); startActivity(new Intent(this, OdometerExportActivity.class));
+        });
         if (abrpShortcut != null) abrpShortcut.setOnClickListener(v -> { dialogInstance.dismiss(); showAbrpSettingsDialog(); });
         if (customizeCards != null) customizeCards.setOnClickListener(v -> { dialogInstance.dismiss(); showCustomizeHomeDialog(); });
         DigitalKey savedKey = new DigitalKeyManager(this).getActiveKey();
-        if (keyStatus != null) keyStatus.setText("Smart Access: " + bleManager.getAccessStatusText()
+        if (keyStatus != null) keyStatus.setText("Dijital anahtar: " + (bleManager.isCommandReady() ? "Hazır" : "Kurulum veya bağlantı bekleniyor")
                 + (savedKey != null ? "\nDavet kaydı: " + (savedKey.isValid() ? savedKey.getRemainingTimeDisplay() : "Aktivasyon bekliyor") : ""));
         if (manageKey != null) manageKey.setOnClickListener(v -> { dialogInstance.dismiss(); showManageDigitalKeyDialog(); });
         if (syncKey != null) syncKey.setOnClickListener(v -> {
@@ -2723,12 +2610,12 @@ public final class MainActivity extends Activity {
         boolean hasAuth = storage.hasValidToken();
         if (tvAuthStatus != null) {
             if (hasAuth) {
-                tvAuthStatus.setText("Durum: ✅ Togg ID Bağlı (Token Aktif)");
+                tvAuthStatus.setText("Togg ID bağlı");
                 tvAuthStatus.setTextColor(getColor(R.color.status_green));
                 if (btnToggLogin != null) btnToggLogin.setText("Togg ID Oturumunu Yenile");
                 if (btnToggLogout != null) btnToggLogout.setVisibility(View.VISIBLE);
             } else {
-                tvAuthStatus.setText("Durum: ⚠︎ Bağlı Değil (Simülasyon Modu)");
+                tvAuthStatus.setText("Togg ID bağlı değil");
                 tvAuthStatus.setTextColor(getColor(R.color.status_amber));
                 if (btnToggLogin != null) btnToggLogin.setText("Togg ID ile Giriş Yap");
                 if (btnToggLogout != null) btnToggLogout.setVisibility(View.GONE);
@@ -2744,6 +2631,7 @@ public final class MainActivity extends Activity {
 
         if (btnToggLogout != null) {
             btnToggLogout.setOnClickListener(v -> {
+                AbrpSyncService.stop(this);
                 storage.clearTokens();
                 storage.setDemoMode(true);
                 Toast.makeText(this, "Togg ID oturumu kapatıldı.", Toast.LENGTH_SHORT).show();
@@ -2754,57 +2642,11 @@ public final class MainActivity extends Activity {
 
         etPlate.setText(storage.getPlate());
         etVin.setText(storage.getVin());
-        if (etOwnerId != null) etOwnerId.setText(storage.getOwnerId());
-        etToken.setText(storage.getAccessToken());
-        cbDemoMode.setChecked(storage.isDemoMode());
-        cbAbrpEnabled.setChecked(storage.isAbrpEnabled());
-        cbAbrpRouteSync.setChecked(storage.isAbrpRouteSyncEnabled());
-        etAbrpToken.setText(storage.getAbrpToken());
-        abrpCapacity.check(storage.getAbrpCapacity() < 70 ? R.id.rb_abrp_standard : R.id.rb_abrp_long);
-        dialogView.findViewById(R.id.btn_abrp_send).setOnClickListener(v -> {
-            String token = etAbrpToken.getText().toString().trim();
-            VehicleTelemetry data = currentTelemetry != null ? currentTelemetry : storage.getActiveTelemetry();
-            double capacity = abrpCapacity.getCheckedRadioButtonId() == R.id.rb_abrp_standard ? 52.4 : 88.5;
-            new Thread(() -> {
-                boolean ok = AbrpClient.sendTelemetry(token, data, capacity);
-                runOnUiThread(() -> {
-                    if (ok) { storage.setAbrpLastSync(System.currentTimeMillis()); Toast.makeText(this, "ABRP telemetrisi gönderildi.", Toast.LENGTH_SHORT).show(); }
-                    else Toast.makeText(this, "ABRP gönderimi başarısız. Token ve bağlantıyı kontrol edin.", Toast.LENGTH_LONG).show();
-                });
-            }, "abrp-manual-send").start();
-        });
-        dialogView.findViewById(R.id.btn_abrp_open).setOnClickListener(v -> {
-            Intent appIntent = getPackageManager().getLaunchIntentForPackage("com.iternio.abrpapp");
-            if (appIntent == null) appIntent = getPackageManager().getLaunchIntentForPackage("com.iternio.abrp");
-            try { startActivity(appIntent != null ? appIntent : new Intent(Intent.ACTION_VIEW, Uri.parse("https://abetterrouteplanner.com/"))); }
-            catch (Exception ignored) { startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse("https://abetterrouteplanner.com/"))); }
-        });
-
-        dialogView.findViewById(R.id.et_plate).post(() -> {
-            // Dialog buttons
-        });
-
         // Set action buttons on the dialog instance
         dialogInstance.setButton(AlertDialog.BUTTON_POSITIVE, getString(R.string.btn_save), (dialog, which) -> {
-            String enteredToken = etToken.getText().toString().trim();
-            if (enteredToken.contains("@")) {
-                Toast.makeText(this, "E-posta adresi token değildir. Bu alanı boş bırakabilirsiniz.", Toast.LENGTH_LONG).show();
-                enteredToken = "";
-            }
-
             storage.setPlate(etPlate.getText().toString().trim());
             storage.setVin(etVin.getText().toString().trim());
-            if (etOwnerId != null) storage.setOwnerId(etOwnerId.getText().toString());
-            if (!enteredToken.isEmpty()) {
-                storage.setAccessToken(enteredToken);
-            }
-            storage.setAbrpToken(etAbrpToken.getText().toString());
-            storage.setAbrpEnabled(cbAbrpEnabled.isChecked());
-            storage.setAbrpRouteSyncEnabled(cbAbrpRouteSync.isChecked());
-            storage.setAbrpCapacity(abrpCapacity.getCheckedRadioButtonId() == R.id.rb_abrp_standard ? 52.4 : 88.5);
-            configureAbrpJob(storage.isAbrpEnabled());
-            requestAbrpNotificationPermission(cbAbrpRouteSync.isChecked());
-            storage.setDemoMode(cbDemoMode.isChecked() || !storage.hasValidToken());
+            storage.setDemoMode(!storage.hasValidToken());
             if (!storage.isDemoMode() && bleManager.isDemoConnected()) bleManager.disconnect();
             ToggAppWidgetProvider.updateAllWidgets(this);
             refreshTelemetry();
@@ -2814,128 +2656,8 @@ public final class MainActivity extends Activity {
         dialogInstance.show();
     }
 
-    private void maybeSendAbrp(VehicleTelemetry telemetry) {
-        if (!storage.isAbrpEnabled() || telemetry == null || System.currentTimeMillis() - storage.getAbrpLastSync() < AbrpJobService.INTERVAL_MILLIS) return;
-        new Thread(() -> {
-            if (AbrpClient.sendTelemetry(storage.getAbrpToken(), telemetry, storage.getAbrpCapacity())) storage.setAbrpLastSync(System.currentTimeMillis());
-        }, "abrp-refresh-send").start();
-    }
-
     private void showAbrpSettingsDialog() {
-        LinearLayout layout = new LinearLayout(this);
-        layout.setOrientation(LinearLayout.VERTICAL);
-        layout.setPadding(dpToPx(20), dpToPx(8), dpToPx(20), dpToPx(4));
-
-        CheckBox enabled = new CheckBox(this);
-        enabled.setText("4 dakikada bir ABRP'ye gönder");
-        enabled.setChecked(storage.isAbrpEnabled());
-        layout.addView(enabled);
-
-        CheckBox routeSync = new CheckBox(this);
-        routeSync.setText("ABRP rota değişikliğini araca aktar (~4 dk kontrol)");
-        routeSync.setChecked(storage.isAbrpRouteSyncEnabled());
-        layout.addView(routeSync);
-        TextView routeStatus = new TextView(this);
-        routeStatus.setText(storage.getAbrpRouteStatus());
-        routeStatus.setTextColor(getColor(R.color.text_secondary));
-        routeStatus.setTextSize(12);
-        layout.addView(routeStatus);
-        Button checkRoute = new Button(this);
-        checkRoute.setText("Rotayı şimdi kontrol et");
-        checkRoute.setOnClickListener(v -> {
-            if (!storage.isAbrpRouteSyncEnabled() || storage.getAbrpToken().isEmpty()) {
-                Toast.makeText(this, "Önce otomatik rota aktarımını açıp token ile kaydedin.", Toast.LENGTH_LONG).show(); return;
-            }
-            AbrpJobService.requestRouteCheck(this);
-            routeStatus.setText("Kontrol istendi. Sonuç ABRP kartında ve bildirimde gösterilecek.");
-        });
-        layout.addView(checkRoute);
-        Button resetRoute = new Button(this);
-        resetRoute.setText("Rota gönderim kaydını sıfırla");
-        resetRoute.setOnClickListener(v -> new AlertDialog.Builder(this)
-                .setTitle("Rota kaydını sıfırla")
-                .setMessage("Araç ekranındaki hedefi kontrol edin. Kaydı sıfırlamak, aynı ABRP rotasının sonraki kontrolde yeniden gönderilmesine izin verir.")
-                .setNegativeButton("Vazgeç", null).setPositiveButton("Sıfırla", (d, which) -> {
-                    storage.resetAbrpRouteTracking(); routeStatus.setText(storage.getAbrpRouteStatus());
-                }).show());
-        layout.addView(resetRoute);
-
-        EditText token = new EditText(this);
-        token.setHint("ABRP Generic Token");
-        token.setSingleLine(true);
-        token.setInputType(android.text.InputType.TYPE_CLASS_TEXT | android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD);
-        token.setText(storage.getAbrpToken());
-        layout.addView(token);
-
-        RadioGroup capacity = new RadioGroup(this);
-        RadioButton longRange = new RadioButton(this);
-        longRange.setId(View.generateViewId());
-        longRange.setText("88.5 kWh (Uzun Menzil)");
-        RadioButton standard = new RadioButton(this);
-        standard.setId(View.generateViewId());
-        standard.setText("52.4 kWh (Standart)");
-        capacity.addView(longRange);
-        capacity.addView(standard);
-        capacity.check(storage.getAbrpCapacity() < 70 ? standard.getId() : longRange.getId());
-        layout.addView(capacity);
-
-        Button send = new Button(this);
-        send.setText("Şimdi Gönder / Test Et");
-        send.setOnClickListener(v -> sendAbrpTelemetry(currentTelemetry != null ? currentTelemetry : storage.getActiveTelemetry(), token.getText().toString().trim(), capacity.getCheckedRadioButtonId() == standard.getId() ? 52.4 : 88.5));
-        layout.addView(send);
-        Button open = new Button(this);
-        open.setText("ABRP'yi Aç");
-        open.setOnClickListener(v -> openAbrp());
-        layout.addView(open);
-
-        ScrollView abrpScroll = new ScrollView(this);
-        abrpScroll.addView(layout);
-        AlertDialog.Builder builder = new AlertDialog.Builder(this)
-                .setTitle("ABRP Telemetri ve Otomatik Rota")
-                .setView(abrpScroll)
-                .setPositiveButton(getString(R.string.btn_save), null)
-                .setNegativeButton(getString(R.string.btn_cancel), null);
-        AlertDialog dialog = builder.create();
-        dialog.setOnShowListener(d -> dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
-            storage.setAbrpToken(token.getText().toString().trim());
-            storage.setAbrpEnabled(enabled.isChecked());
-            storage.setAbrpRouteSyncEnabled(routeSync.isChecked());
-            storage.setAbrpCapacity(capacity.getCheckedRadioButtonId() == standard.getId() ? 52.4 : 88.5);
-            configureAbrpJob(enabled.isChecked());
-            requestAbrpNotificationPermission(routeSync.isChecked());
-            renderHomeCards();
-            dialog.dismiss();
-        }));
-        dialog.show();
-    }
-
-    private void sendAbrpTelemetry(VehicleTelemetry data, String token, double capacity) {
-        if (token == null || token.trim().isEmpty() || data == null) {
-            Toast.makeText(this, "ABRP token veya araç telemetrisi eksik.", Toast.LENGTH_LONG).show();
-            return;
-        }
-        new Thread(() -> {
-            boolean ok = AbrpClient.sendTelemetry(token, data, capacity);
-            runOnUiThread(() -> {
-                if (ok) { storage.setAbrpLastSync(System.currentTimeMillis()); Toast.makeText(this, "ABRP telemetrisi gönderildi.", Toast.LENGTH_SHORT).show(); }
-                else Toast.makeText(this, "ABRP gönderimi başarısız. Token ve bağlantıyı kontrol edin.", Toast.LENGTH_LONG).show();
-            });
-        }, "abrp-manual-send").start();
-    }
-
-    private void configureAbrpJob(boolean enabled) {
-        JobScheduler scheduler = (JobScheduler) getSystemService(JOB_SCHEDULER_SERVICE);
-        if (scheduler == null) return;
-        if (enabled) AbrpJobService.scheduleNext(this);
-        else scheduler.cancel(AbrpJobService.JOB_ID);
-        AbrpJobService.requestRouteCheck(this);
-    }
-
-    private void requestAbrpNotificationPermission(boolean routeEnabled) {
-        if (routeEnabled && Build.VERSION.SDK_INT >= 33
-                && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
-            requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, 302);
-        }
+        selectTab(7);
     }
 
     private void applyThemeBeforeContent() {
@@ -3002,11 +2724,13 @@ public final class MainActivity extends Activity {
     @Override
     protected void onPause() {
         ToggAppWidgetProvider.updateAllWidgets(this);
+        abrpUiHandler.removeCallbacks(abrpUiTick);
         super.onPause();
     }
 
     @Override
     protected void onDestroy() {
+        if (directionsPage != null) directionsPage.close();
         if (smartAccessSetupDialog != null) smartAccessSetupDialog.dismiss();
         bleManager.removeListener(bleListener);
         bleManager.removeTelemetryListener(bleTelemetryListener);

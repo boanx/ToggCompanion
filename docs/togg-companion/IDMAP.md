@@ -64,7 +64,7 @@ Implemented native Android companion phone application (`app/`) and Wear OS Gala
 - `F56` = `app/src/main/res/drawable/tire_subcard_low.xml`
 - `F57` = `app/src/main/res/values-night/`
 - `F58` = `app/src/main/java/com/togg/companion/data/remote/AbrpClient.java`
-- `F59` = `app/src/main/java/com/togg/companion/service/AbrpJobService.java`
+- `F59` = `app/src/main/java/com/togg/companion/service/AbrpJobService.java` [retired]
 - `F60` = `app/src/test/java/com/togg/companion/data/remote/AbrpClientTest.java`
 - `F61` = `app/src/main/java/com/togg/companion/core/GezRouteBridge.java`
 - `F62` = `app/src/test/java/com/togg/companion/core/GezRouteBridgeTest.java`
@@ -103,6 +103,9 @@ Implemented native Android companion phone application (`app/`) and Wear OS Gala
 - `F90` = `app/src/main/res/values/widget_colors.xml`
 - `F91` = `docs/WIDGET_ONE_UI_DESIGN.md`
 - `F92` = `docs/AGENT_HANDOFF.md`
+- `F93` = `docs/SMART_ACCESS_CERTIFICATE_DIAGNOSTICS.md`
+- `F94` = `docs/SMART_ACCESS_ENROLLMENT_RESEARCH.md`
+- `F95` = `docs/TRUMORE_2_1_26_COMPARISON.md`
 
 ## Entity IDs
 
@@ -146,3 +149,49 @@ Implemented native Android companion phone application (`app/`) and Wear OS Gala
 - `renders`
 - `synchronizes`
 - `validates`
+
+- `F96` = `docs/SMART_ACCESS_SHARED_ACCOUNT_PREPARATION.md`
+
+- `F97` = `app/src/main/java/com/togg/companion/data/SmartAccessAccountStorage.java`
+- `F98` = `app/src/main/java/com/togg/companion/data/remote/SmartAccessInvitationClient.java`
+
+- `F99` = `app/src/main/java/com/togg/companion/core/AppLog.java`
+- `F100` = `app/src/main/java/com/togg/companion/ui/AbrpActivity.java`
+- `F101` = `app/src/main/res/xml/log_paths.xml`
+- `F102` = `app/src/main/java/com/togg/companion/service/AbrpSyncEngine.java`
+- `F103` = `docs/ABRP_SYNC.md`
+- `F104` = `app/src/main/java/com/togg/companion/service/AbrpSyncService.java`
+- `F105` = `app/src/test/java/com/togg/companion/core/AppLogTest.java`
+
+- `F106` = `app/src/main/java/com/togg/companion/widget/WidgetRefreshJobService.java`
+- `F107` = `app/src/main/res/drawable/ic_widget_refresh.xml`
+
+- `F108` = `app/src/main/java/com/togg/companion/ui/DirectionsPage.java`
+- `F109` = `app/src/main/java/com/togg/companion/widget/AbrpWidgetToggleReceiver.java`
+- `F110` = `app/src/main/res/drawable/bg_widget_abrp_active.xml`
+- `F111` = `app/src/main/res/drawable/bg_widget_abrp_inactive.xml`
+
+- `F112` = `app/src/main/java/com/togg/companion/widget/WidgetMapSnapshotStore.java`
+- `F113` = `app/src/test/java/com/togg/companion/widget/WidgetMapSnapshotStoreTest.java`
+
+- `F114` = `app/src/main/java/com/togg/companion/core/HomeCardLayout.java`
+- `F115` = `app/src/test/java/com/togg/companion/core/HomeCardLayoutTest.java`
+- `F116` = `docs/HOME_LAYOUT_AND_ODOMETER.md`
+
+- `F117` = `docs/TRIP_DURATION.md`
+
+- `F118` = `app/src/main/java/com/togg/companion/core/DriveMode.java`
+- `F119` = `app/src/test/java/com/togg/companion/core/DriveModeTest.java`
+- `F120` = `docs/DRIVE_MODE_DISPLAY.md`
+
+- `F121` = `app/src/main/java/com/togg/companion/core/OdometerExport.java`
+- `F122` = `app/src/main/java/com/togg/companion/data/OdometerExportStore.java`
+- `F123` = `app/src/main/java/com/togg/companion/service/OdometerExportJobService.java`
+- `F124` = `app/src/main/java/com/togg/companion/ui/OdometerExportActivity.java`
+- `F125` = `app/src/test/java/com/togg/companion/core/OdometerExportTest.java`
+- `F126` = `docs/ODOMETER_JSON_EXPORT.md`
+- `C11` = User-scheduled odometer-only JSON export to selected document provider
+
+- `F127` = `app/src/main/java/com/togg/companion/core/ChargingInfo.java`
+- `F128` = `app/src/test/java/com/togg/companion/core/ChargingInfoTest.java`
+- `F129` = `docs/CHARGING_POWER.md`

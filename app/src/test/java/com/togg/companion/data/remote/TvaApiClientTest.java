@@ -7,6 +7,46 @@ import java.util.Arrays;
 import static org.junit.Assert.*;
 
 public class TvaApiClientTest {
+    private static final class DestinationResult implements TvaApiClient.DestinationCallback {
+        String state;
+        public void onSuccess(String message) { state = "verified"; }
+        public void onAccepted(String message) { state = "accepted"; }
+        public void onUncertain(String message) { state = "uncertain"; }
+        public void onError(String message) { state = "failed"; }
+    }
+    @Test public void acceptedPostIsNotAnErrorWhenReadbackFails() {
+        for (String body : new String[]{"true", "", "null", "{\"success\":true}"}) {
+            DestinationResult result = new DestinationResult();
+            TvaApiClient.reportAcceptedDestinationResponse(body, "application/json", "GET unavailable", result);
+            assertEquals("accepted", result.state);
+        }
+    }
+    @Test public void matchingReadbackConfirmsRouteEvenIfPostReturnedFalse() {
+        DestinationResult result = new DestinationResult();
+        TvaApiClient.reportAcceptedDestinationResponse("false", "application/json", null, result);
+        assertEquals("verified", result.state);
+    }
+    @Test public void falsePostWithoutMatchingReadbackRemainsUncertain() {
+        DestinationResult result = new DestinationResult();
+        TvaApiClient.reportAcceptedDestinationResponse("false", "application/json", "No matching route", result);
+        assertEquals("uncertain", result.state);
+    }
+    @Test public void sharedRouteKeepsEmptyWaypointsAndReadbackRequiresCompleteTarget() throws Exception {
+        JSONObject body = TvaApiClient.buildCompanionSharePayload(new GezPoint(41.1, 29.2, "Test target"), null, "test-client");
+        assertEquals(0, body.getJSONArray("waypoints").length());
+        assertNull(TvaApiClient.sharedRouteReadbackError(body.toString(), body));
+        JSONObject saved = new JSONObject(body.toString());
+        saved.getJSONObject("arrivalPoint").getJSONObject("address").remove("label");
+        assertTrue(TvaApiClient.sharedRouteReadbackError(saved.toString(), body).contains("address.label"));
+    }
+    @Test public void readbackRejectsOtherClientsAndChangedCoordinates() throws Exception {
+        JSONObject body = TvaApiClient.buildCompanionSharePayload(new GezPoint(41.1, 29.2, "Test target"), null, "test-client");
+        JSONObject saved = new JSONObject(body.toString()).put("device_Id", "other-client");
+        assertTrue(TvaApiClient.sharedRouteReadbackError(saved.toString(), body).contains("device_Id"));
+        saved.put("device_Id", "test-client");
+        saved.getJSONObject("arrivalPoint").getJSONObject("geolocation").put("latitude", 42.0);
+        assertTrue(TvaApiClient.sharedRouteReadbackError(saved.toString(), body).contains("latitude"));
+    }
     @Test public void singleDestinationUsesOriginalNestedPointSchema() throws Exception {
         JSONObject body = TvaApiClient.buildPlannedJourneyPayload(new GezPoint(41.1, 29.2, "  Hedef  "), null);
         assertEquals(1, body.length());

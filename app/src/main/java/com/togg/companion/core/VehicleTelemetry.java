@@ -182,8 +182,8 @@ public final class VehicleTelemetry implements Serializable {
         this.batterySocPercent = Math.max(0, Math.min(100, batterySocPercent));
         this.estimatedRangeKm = Math.max(0, estimatedRangeKm);
         this.isCharging = isCharging;
-        this.chargePowerKw = Math.max(0.0, chargePowerKw);
-        this.chargeMode = chargeMode != null ? chargeMode : (isCharging ? "AC Şarj (11 kW)" : "Bağlı Değil");
+        this.chargePowerKw = !isCharging ? 0.0 : ChargingInfo.knownPower(chargePowerKw) ? chargePowerKw : -1.0;
+        this.chargeMode = chargeMode != null ? chargeMode : (isCharging ? "Şarj Oluyor" : "Bağlı Değil");
         this.chargeRemainingMinutes = Math.max(0, chargeRemainingMinutes);
         this.targetChargeLimitPercent = Math.max(50, Math.min(100, targetChargeLimitPercent > 0 ? targetChargeLimitPercent : 80));
         this.batteryTotalCapacityKwh = batteryTotalCapacityKwh > 0 ? batteryTotalCapacityKwh : 88.5;
@@ -220,7 +220,7 @@ public final class VehicleTelemetry implements Serializable {
         this.headlightsOn = headlightsOn;
         this.isReadyToDrive = isReadyToDrive;
         this.odometerKm = Math.max(0, odometerKm);
-        this.driveMode = driveMode != null ? driveMode : "Comfort";
+        this.driveMode = DriveMode.canonical(driveMode);
         this.lastTripDistanceKm = Math.max(0.0, lastTripDistanceKm);
         this.lastTripDurationMin = Math.max(0, lastTripDurationMin);
         this.lastTripAvgConsumption = Math.max(0.0, lastTripAvgConsumption);
@@ -427,14 +427,14 @@ public final class VehicleTelemetry implements Serializable {
             boolean isReadyToDrive, long timestampMillis) {
         this(
                 vin, plate, batterySocPercent, estimatedRangeKm, isCharging, chargePowerKw,
-                isCharging ? "AC Şarj (11 kW)" : "Bağlı Değil", 0, 80, 88.5, 0.0,
+                isCharging ? "Şarj Oluyor" : "Bağlı Değil", 0, 80, 88.5, 0.0,
                 lowVoltage12vPercent, 13.2,
                 tirePressureFL, tireTempFL, tirePressureFR, tireTempFR,
                 tirePressureRL, tireTempRL, tirePressureRR, tireTempRR, true,
                 cabinTempCelsius, targetHvacCelsius, outdoorTempCelsius, false, false,
                 0, 0, false,
                 isLocked, false, false, false, false, trunkOpen, false, false, false, true,
-                odometerKm, driveMode != null ? driveMode : "Comfort", 0.0, 0, 0.0, 0,
+                odometerKm, driveMode, 0.0, 0, 0.0, 0,
                 latitude, longitude, parkAddress != null ? parkAddress : "Aracın konumu belirleniyor...", 0,
                 timestampMillis, null, null, null, headlightsOn, isReadyToDrive
         );
@@ -470,7 +470,7 @@ public final class VehicleTelemetry implements Serializable {
                 lowVoltage12vPercent, cabinTempCelsius, targetHvacCelsius, outdoorTempCelsius,
                 tirePressureFL, tireTempFL, tirePressureFR, tireTempFR,
                 tirePressureRL, tireTempRL, tirePressureRR, tireTempRR,
-                odometerKm, isLocked, 0.0, 0.0, "Aracın konumu belirleniyor...", false, "Comfort", false,
+                odometerKm, isLocked, 0.0, 0.0, "Aracın konumu belirleniyor...", false, "", false,
                 timestampMillis
         );
     }

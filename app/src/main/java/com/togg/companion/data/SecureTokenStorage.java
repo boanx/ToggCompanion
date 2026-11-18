@@ -33,19 +33,16 @@ public final class SecureTokenStorage {
     private static final String KEY_ABRP_TOKEN = "abrp_token";
     private static final String KEY_ABRP_CAPACITY = "abrp_capacity";
     private static final String KEY_ABRP_LAST_SYNC = "abrp_last_sync";
-    private static final String KEY_ABRP_ROUTE_SYNC_ENABLED = "abrp_route_sync_enabled";
-    private static final String KEY_ABRP_LAST_DISPATCHED_STOP = "abrp_last_dispatched_stop";
-    private static final String KEY_ABRP_LAST_ROUTE_CHECK = "abrp_last_route_check";
-    private static final String KEY_ABRP_ACTIVE_STOP_NAME = "abrp_active_stop_name";
     private static final String DEFAULT_VEHICLE_NAME = "Togg T10F Fastback";
 
     public static final String DEFAULT_API_ENDPOINT = "https://tva-api.togg.cloud/info/api/v2/VehicleInfo";
 
     private final SharedPreferences prefs;
+    private final Context appContext;
     private final boolean isEncrypted;
 
     public SecureTokenStorage(Context context) {
-        Context appContext = context.getApplicationContext();
+        appContext = context.getApplicationContext();
         SharedPreferences legacyPrefs = appContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
         SharedPreferences selectedPrefs;
         boolean encrypted = false;
@@ -67,46 +64,51 @@ public final class SecureTokenStorage {
         }
         this.prefs = selectedPrefs;
         this.isEncrypted = encrypted;
+        if (!prefs.getBoolean("home_cards_catalog_v2", false)) {
+            String oldOrder = prefs.getString("home_cards_order", com.togg.companion.core.HomeCardLayout.DEFAULT_ORDER);
+            String oldVisible = prefs.getString("home_cards_visible", com.togg.companion.core.HomeCardLayout.DEFAULT_ORDER);
+            prefs.edit().putString("home_cards_order", com.togg.companion.core.HomeCardLayout.order(oldOrder))
+                    .putString("home_cards_visible", com.togg.companion.core.HomeCardLayout.upgradeVisible(oldOrder, oldVisible))
+                    .putBoolean("home_cards_catalog_v2", true).apply();
+        }
+        SharedPreferences.Editor cleanup = prefs.edit();
+        for (String key : prefs.getAll().keySet()) {
+            if (key.startsWith("abrp_route_") || key.equals("abrp_last_dispatched_stop")
+                    || key.equals("abrp_last_route_check") || key.equals("abrp_active_stop_name")) cleanup.remove(key);
+        }
+        cleanup.apply();
     }
 
     public boolean isEncryptedStorageActive() { return isEncrypted; }
 
+    /** Local route-sharing client identity; never reuse VIN or Trumore analytics IDs. */
+    public synchronized String getRouteClientId() {
+        String value = prefs.getString("route_client_installation_id", "");
+        if (value == null || value.isEmpty()) {
+            value = java.util.UUID.randomUUID().toString();
+            if (!prefs.edit().putString("route_client_installation_id", value).commit())
+                throw new IllegalStateException("Rota istemci kimliği kaydedilemedi.");
+        }
+        return value;
+    }
+
+
     public boolean isAbrpEnabled() { return prefs.getBoolean(KEY_ABRP_ENABLED, false); }
     public void setAbrpEnabled(boolean enabled) { prefs.edit().putBoolean(KEY_ABRP_ENABLED, enabled).apply(); }
     public String getAbrpToken() { return prefs.getString(KEY_ABRP_TOKEN, ""); }
-    public void setAbrpToken(String token) { prefs.edit().putString(KEY_ABRP_TOKEN, token == null ? "" : token.trim()).apply(); }
+    public void setAbrpToken(String token) {
+        String value = token == null ? "" : token.trim();
+        SharedPreferences.Editor edit = prefs.edit().putString(KEY_ABRP_TOKEN, value);
+        if (!value.equals(getAbrpToken())) edit.remove(KEY_ABRP_LAST_SYNC);
+        edit.apply();
+    }
     public double getAbrpCapacity() { return Double.longBitsToDouble(prefs.getLong(KEY_ABRP_CAPACITY, Double.doubleToLongBits(88.5))); }
     public void setAbrpCapacity(double capacity) { prefs.edit().putLong(KEY_ABRP_CAPACITY, Double.doubleToLongBits(capacity)).apply(); }
-    public long getAbrpLastSync() { return prefs.getLong(KEY_ABRP_LAST_SYNC, 0L); }
-    public void setAbrpLastSync(long millis) { prefs.edit().putLong(KEY_ABRP_LAST_SYNC, millis).apply(); }
-    public boolean isAbrpRouteSyncEnabled() { return prefs.getBoolean(KEY_ABRP_ROUTE_SYNC_ENABLED, false); }
-    public void setAbrpRouteSyncEnabled(boolean enabled) { prefs.edit().putBoolean(KEY_ABRP_ROUTE_SYNC_ENABLED, enabled).apply(); }
-    public String getAbrpLastDispatchedStop() { return prefs.getString(KEY_ABRP_LAST_DISPATCHED_STOP, ""); }
-    public void setAbrpLastDispatchedStop(String stopKey) { prefs.edit().putString(KEY_ABRP_LAST_DISPATCHED_STOP, stopKey == null ? "" : stopKey).apply(); }
-    public long getAbrpLastRouteCheck() { return prefs.getLong(KEY_ABRP_LAST_ROUTE_CHECK, 0L); }
-    public void setAbrpLastRouteCheck(long millis) { prefs.edit().putLong(KEY_ABRP_LAST_ROUTE_CHECK, millis).apply(); }
-    public String getAbrpActiveStopName() { return prefs.getString(KEY_ABRP_ACTIVE_STOP_NAME, ""); }
-    public void setAbrpActiveStopName(String name) { prefs.edit().putString(KEY_ABRP_ACTIVE_STOP_NAME, name == null ? "" : name.trim()).apply(); }
-
-    public String getAbrpRouteStatus() { return prefs.getString("abrp_route_status", "Henüz kontrol edilmedi"); }
-    public void setAbrpRouteStatus(String status) { prefs.edit().putString("abrp_route_status", status).apply(); }
-    public String getAbrpAcceptedRoute(String scope) { return prefs.getString("abrp_route_accepted_" + scope, ""); }
-    public String getAbrpPendingRoute(String scope) { return prefs.getString("abrp_route_pending_" + scope, ""); }
-    public boolean markAbrpRouteAttempt(String scope, String fingerprint) {
-        return prefs.edit().putString("abrp_route_pending_" + scope, fingerprint).commit();
-    }
-    public void clearAbrpRouteAttempt(String scope) { prefs.edit().remove("abrp_route_pending_" + scope).commit(); }
-    public boolean recordAbrpRouteAccepted(String scope, String fingerprint, String summary) {
-        return prefs.edit().putString("abrp_route_accepted_" + scope, fingerprint)
-                .remove("abrp_route_pending_" + scope).putString(KEY_ABRP_ACTIVE_STOP_NAME, summary)
-                .putLong("abrp_route_last_dispatch", System.currentTimeMillis()).commit();
-    }
-    public void resetAbrpRouteTracking() {
-        String scope = getAbrpRouteScope();
-        prefs.edit().remove("abrp_route_accepted_" + scope).remove("abrp_route_pending_" + scope)
-                .putString("abrp_route_status", "Rota kaydı sıfırlandı").commit();
-    }
-    public String getAbrpRouteScope() {
+    /** Accept sanitized charging evidence, never a raw HTTP response. */
+    public void logChargingDiagnostic(String evidence) { com.togg.companion.core.AppLog.event(appContext, "CHARGING", evidence); }
+    public long getAbrpLastSync() { return getAbrpSyncScope().equals(prefs.getString("abrp_last_sync_scope", "")) ? prefs.getLong(KEY_ABRP_LAST_SYNC, 0L) : 0L; }
+    public void setAbrpLastSync(long millis) { prefs.edit().putLong(KEY_ABRP_LAST_SYNC, millis).putString("abrp_last_sync_scope", getAbrpSyncScope()).apply(); }
+    public String getAbrpSyncScope() {
         String account = getAccessToken();
         try {
             String[] parts = account.split("\\.");
@@ -114,12 +116,14 @@ public final class SecureTokenStorage {
                 JSONObject claims = new JSONObject(new String(java.util.Base64.getUrlDecoder().decode(parts[1]), java.nio.charset.StandardCharsets.UTF_8));
                 if (!claims.optString("sub", "").isEmpty()) account = claims.optString("iss", "") + "|" + claims.getString("sub");
             }
+        } catch (Exception invalidClaims) { /* Hash the original token if claims cannot be decoded. */ }
+        try {
             byte[] digest = java.security.MessageDigest.getInstance("SHA-256").digest(
-                    (getVin() + "|" + account + "|" + getAbrpToken()).getBytes(java.nio.charset.StandardCharsets.UTF_8));
+                    (getVin() + "|" + account + "|" + getAbrpToken() + "|" + getAbrpCapacity()).getBytes(java.nio.charset.StandardCharsets.UTF_8));
             StringBuilder hash = new StringBuilder();
             for (byte value : digest) hash.append(String.format(java.util.Locale.US, "%02x", value & 255));
             return hash.toString();
-        } catch (Exception invalid) { throw new IllegalStateException("Rota oturum kimliği oluşturulamadı."); }
+        } catch (Exception invalid) { throw new IllegalStateException("ABRP oturum kimliği oluşturulamadı."); }
     }
 
     private static void migratePlaintextPreferences(SharedPreferences legacy, SharedPreferences encrypted) {
@@ -285,7 +289,7 @@ public final class SecureTokenStorage {
         try {
             JSONObject j = new JSONObject(value);
             return new VehicleTelemetry(j.optString("vin"), j.optString("plate"), j.optInt("soc"), j.optInt("range"),
-                    j.optBoolean("charging"), j.optDouble("chargePower"), j.optString("chargeMode"), j.optInt("chargeMinutes"),
+                    j.optBoolean("charging"), j.optDouble("chargePower", -1.0), j.optString("chargeMode"), j.optInt("chargeMinutes"),
                     j.optInt("chargeLimit", 80), j.optDouble("capacity", 88.5), j.optDouble("lastEnergy"),
                     j.optInt("12v"), j.optDouble("12vVolts", 13.2), j.optDouble("tfl"), j.optInt("ttfl"),
                     j.optDouble("tfr"), j.optInt("ttfr"), j.optDouble("trl"), j.optInt("ttrl"), j.optDouble("trr"), j.optInt("ttrr"),
@@ -323,10 +327,10 @@ public final class SecureTokenStorage {
 
     private static final String KEY_HOME_CARDS_ORDER = "home_cards_order";
     private static final String KEY_HOME_CARDS_VISIBLE = "home_cards_visible";
-    public static final String DEFAULT_HOME_CARDS = "battery,drive,tires,location,12v";
+    public static final String DEFAULT_HOME_CARDS = com.togg.companion.core.HomeCardLayout.DEFAULT_ORDER;
 
     public String getHomeCardsOrder() {
-        return prefs.getString(KEY_HOME_CARDS_ORDER, DEFAULT_HOME_CARDS);
+        return com.togg.companion.core.HomeCardLayout.order(prefs.getString(KEY_HOME_CARDS_ORDER, DEFAULT_HOME_CARDS));
     }
 
     public void setHomeCardsOrder(String order) {
@@ -334,11 +338,16 @@ public final class SecureTokenStorage {
     }
 
     public String getHomeCardsVisible() {
-        return prefs.getString(KEY_HOME_CARDS_VISIBLE, DEFAULT_HOME_CARDS);
+        return com.togg.companion.core.HomeCardLayout.visible(prefs.getString(KEY_HOME_CARDS_VISIBLE, DEFAULT_HOME_CARDS));
     }
 
     public void setHomeCardsVisible(String visible) {
         prefs.edit().putString(KEY_HOME_CARDS_VISIBLE, visible).apply();
+    }
+
+    public void setHomeCards(String order, String visible) {
+        prefs.edit().putString(KEY_HOME_CARDS_ORDER, com.togg.companion.core.HomeCardLayout.order(order))
+                .putString(KEY_HOME_CARDS_VISIBLE, com.togg.companion.core.HomeCardLayout.visible(visible)).apply();
     }
 
     private static final String KEY_LAST_KNOWN_LAT = "last_known_lat";

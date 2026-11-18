@@ -222,6 +222,9 @@
                 android:text="@string/tab_location"
                 android:textColor="@color/text_secondary"
                 android:textSize="13sp" />
+            <TextView android:id="@+id/tab_directions" android:layout_width="wrap_content" android:layout_height="38dp"
+                android:layout_marginStart="8dp" android:background="@drawable/tab_unselected_bg" android:gravity="center"
+                android:paddingHorizontal="14dp" android:text="Yol Tarifi" android:textColor="@color/text_secondary" android:textSize="13sp" />
         </LinearLayout>
     </HorizontalScrollView>
 
@@ -343,14 +346,6 @@
                             android:orientation="horizontal"
                             android:paddingVertical="4dp" />
                     </LinearLayout>
-
-                    <Button
-                        android:id="@+id/btn_send_route"
-                        android:layout_width="match_parent" android:layout_height="56dp"
-                        android:layout_marginBottom="16dp"
-                        android:background="@drawable/btn_gradient"
-                        android:text="Akıllı cihazıma aktar" android:textColor="@color/white"
-                        android:textSize="15sp" android:fontFamily="sans-serif-medium" />
                     <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
                         android:text="ARAÇ ÖZETİ" android:textColor="@color/text_secondary"
                         android:textSize="11sp" android:letterSpacing="0.16"
@@ -494,7 +489,7 @@
                                     android:layout_width="wrap_content"
                                     android:layout_height="wrap_content"
                                     android:layout_marginTop="2dp"
-                                    android:text="AC Ev Şarjı"
+                                    android:text="Bilgi yok"
                                     android:textColor="@color/text_primary"
                                     android:textSize="13sp"
                                     android:textStyle="bold" />
@@ -521,7 +516,7 @@
                                     android:layout_width="wrap_content"
                                     android:layout_height="wrap_content"
                                     android:layout_marginTop="2dp"
-                                    android:text="0.0 kW"
+                                    android:text="Bilgi yok"
                                     android:textColor="@color/accent_togg"
                                     android:textSize="13sp"
                                     android:textStyle="bold" />
@@ -1335,6 +1330,9 @@
                     android:orientation="vertical"
                     android:visibility="gone">
 
+                    <LinearLayout android:id="@+id/drive_odometer_container" android:layout_width="match_parent"
+                        android:layout_height="wrap_content" android:orientation="vertical" />
+
                     <LinearLayout
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
@@ -1364,28 +1362,15 @@
                                 android:background="@drawable/badge_pill"
                                 android:paddingHorizontal="10dp"
                                 android:paddingVertical="3dp"
-                                android:text="Sürüş Modu: Konfor"
+                                android:text="Sürüş Modu: Bilgi yok"
                                 android:textColor="@color/accent_togg"
                                 android:textSize="11sp"
                                 android:textStyle="bold" />
                         </RelativeLayout>
+                        <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+                            android:text="Son alınan araç verisindeki mod" android:textColor="@color/text_muted" android:textSize="12sp" />
 
-                        <TextView
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:text="@string/total_odometer"
-                            android:textColor="@color/text_muted"
-                            android:textSize="12sp" />
 
-                        <TextView
-                            android:id="@+id/tv_odometer"
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:layout_marginTop="2dp"
-                            android:text="14280 km"
-                            android:textColor="@color/text_primary"
-                            android:textSize="26sp"
-                            android:textStyle="bold" />
                     </LinearLayout>
 
                     <!-- Last Trip Breakdown -->
@@ -1654,6 +1639,9 @@
                     android:textColor="@color/white"
                     android:textSize="15sp"
                     android:textStyle="bold" />
+
+                <LinearLayout android:id="@+id/page_directions" android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:orientation="vertical" android:visibility="gone" />
 
                 <!-- Dynamic Bottom Navigation Bar Spacer -->
                 <View

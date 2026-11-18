@@ -28,9 +28,8 @@ public final class GezRouteBridge {
     private static final Pattern COORDINATES = Pattern.compile("(-?\\d+(?:\\.\\d+)?)\\s*,\\s*(-?\\d+(?:\\.\\d+)?)");
     private static final Pattern URL_PATTERN = Pattern.compile("https?://[^\\s<>]+", Pattern.CASE_INSENSITIVE);
     private static final Pattern DIRECTIONS = Pattern.compile("(?:/maps/dir/|/dir/)([^?#]+)", Pattern.CASE_INSENSITIVE);
-    private static final Pattern PLACE = Pattern.compile("/place/([^/?#]+)", Pattern.CASE_INSENSITIVE);
+    private static final Pattern PLACE = Pattern.compile("/(?:place|search)/([^/?#]+)", Pattern.CASE_INSENSITIVE);
     private static final Pattern NAME_PARAM = Pattern.compile("[?&](?:q|query|placeName|name)=([^&#]*)", Pattern.CASE_INSENSITIVE);
-    private static final Pattern COORD_PARAM = Pattern.compile("[?&](?:q|query|coordinate|ll|destination)=(-?\\d+(?:\\.\\d+)?)\\s*,\\s*(-?\\d+(?:\\.\\d+)?)", Pattern.CASE_INSENSITIVE);
     private static final Pattern AT_COORD = Pattern.compile("/@(-?\\d+(?:\\.\\d+)?)\\s*,\\s*(-?\\d+(?:\\.\\d+)?)");
     private static final Pattern DATA_COORD = Pattern.compile("!3d(-?\\d+(?:\\.\\d+)?)!4d(-?\\d+(?:\\.\\d+)?)");
     private static final Pattern DATA_COORD_REVERSED = Pattern.compile("!1d(-?\\d+(?:\\.\\d+)?)!2d(-?\\d+(?:\\.\\d+)?)");
@@ -44,7 +43,12 @@ public final class GezRouteBridge {
         void onResolved(GezPoint point);
         void onError(String error);
     }
-    public interface CloudCallback { void onSuccess(String message); void onError(String message); }
+    public interface CloudCallback {
+        void onSuccess(String message);
+        void onError(String message);
+        default void onAccepted(String message) { onSuccess(message); }
+        default void onUncertain(String message) { onError(message); }
+    }
 
     public static final class GezPoint {
         public final double lat;
@@ -110,19 +114,40 @@ public final class GezRouteBridge {
     public static GezPoint parse(String text) { return parseDirect(text); }
 
     static GezPoint parseUrlForTest(String url) {
+        url = normalizeMapUrl(url);
+        url = url.replace("%21", "!").replaceAll("(?i)%2c", ",");
         List<GezPoint> queryStops = parseQueryStops(url);
         if (!queryStops.isEmpty()) return destinationWithStops(queryStops);
         Matcher dirs = DIRECTIONS.matcher(url);
         if (dirs.find()) {
             String[] segments = dirs.group(1).split("/");
-            List<GezPoint> stops = parseDirectionStops(segments);
+            List<GezPoint> stops = parseDirectionStopsWithData(segments, url);
             if (!stops.isEmpty()) return destinationWithStops(stops);
         }
         List<GezPoint> dataStops = parseDataStops(url);
         if (dataStops.size() > 1) return destinationWithStops(dataStops);
         String[] match = lastMatch(DATA_COORD, url);
         if (match == null) match = lastMatch(DATA_COORD_REVERSED, url);
-        return match == null ? null : point(match[0], match[1], null);
+        if (match != null) return point(match[0], match[1], null);
+        int queryStart = url.indexOf('?');
+        if (queryStart >= 0) {
+            boolean namedTarget = false;
+            for (String key : new String[]{"q", "query", "coordinate", "ll"}) {
+                if ("ll".equals(key) && namedTarget) continue;
+                String value = queryValue(url.substring(queryStart + 1).split("#", 2)[0], key);
+                if (value == null) continue;
+                value = value.replaceFirst("(?i)^(?:loc:|geo:)", "");
+                Matcher coords = GEO_QUERY_COORD.matcher(value);
+                if (coords.matches()) return point(coords.group(1), coords.group(2), null);
+                if (("q".equals(key) || "query".equals(key)) && !value.trim().isEmpty()) namedTarget = true;
+            }
+        }
+        // A named place's @ coordinate is only the viewport and may be far from its pin.
+        if (!PLACE.matcher(url).find() && !DIRECTIONS.matcher(url).find() && !NAME_PARAM.matcher(url).find()) {
+            match = firstMatch(AT_COORD, url);
+            if (match != null) return point(match[0], match[1], null);
+        }
+        return null;
     }
 
     public static GezPoint resolve(Context context, String input) throws IOException {
@@ -134,7 +159,12 @@ public final class GezRouteBridge {
         Matcher urlMatcher = URL_PATTERN.matcher(source);
         if (urlMatcher.find()) {
             String url = urlMatcher.group().replaceAll("[.,;]+$", "");
-            url = followRedirects(url);
+            url = normalizeMapUrl(url);
+            GezPoint known = parseUrlForTest(url);
+            if (known != null && hasResolvedStops(known)) return resolvedPoint(context, known);
+            url = normalizeMapUrl(followRedirects(url));
+            known = parseUrlForTest(url);
+            if (known != null && hasResolvedStops(known)) return resolvedPoint(context, known);
             List<GezPoint> queryStops = parseQueryStops(url);
             if (!queryStops.isEmpty()) {
                 List<GezPoint> resolvedStops = new ArrayList<>();
@@ -145,7 +175,7 @@ public final class GezRouteBridge {
             Matcher dirs = DIRECTIONS.matcher(url);
             if (dirs.find()) {
                 String[] segments = dirs.group(1).split("/");
-                List<GezPoint> stops = parseDirectionStops(segments);
+                List<GezPoint> stops = parseDirectionStopsWithData(segments, url);
                 if (!stops.isEmpty()) {
                     List<GezPoint> resolvedStops = new ArrayList<>();
                     for (int i = 0; i < stops.size(); i++) {
@@ -169,8 +199,7 @@ public final class GezRouteBridge {
             String[] match = lastMatch(DATA_COORD, url);
             if (match == null) match = lastMatch(DATA_COORD_REVERSED, url);
             if (match == null) match = lastMatch(PREVIEW_COORD, url);
-            if (match == null) match = firstMatch(COORD_PARAM, url);
-            if (match == null) match = firstMatch(AT_COORD, url);
+            if (match == null && name == null && !PLACE.matcher(url).find() && !NAME_PARAM.matcher(url).find()) match = firstMatch(AT_COORD, url);
             if (match != null) return withResolvedName(context, point(match[0], match[1], name));
             Matcher place = PLACE.matcher(url);
             if (name == null && place.find()) name = decode(place.group(1));
@@ -206,23 +235,82 @@ public final class GezRouteBridge {
         });
     }
 
+    private static boolean hasResolvedStops(GezPoint point) {
+        if (point.hasMultipleStops()) {
+            for (GezPoint stop : point.stops) if (stop == null || stop.lat == 0 && stop.lon == 0 && stop.name != null) return false;
+        }
+        return !(point.lat == 0 && point.lon == 0 && point.name != null);
+    }
+    private static GezPoint resolvedPoint(Context context, GezPoint point) throws IOException {
+        if (!point.hasMultipleStops()) return withResolvedName(context, point);
+        List<GezPoint> stops = new ArrayList<>();
+        for (GezPoint stop : point.stops) stops.add(resolveNamedOrCoordinate(context, stop));
+        return new GezPoint(point.lat, point.lon, point.name, stops, point.stopsIncludeOrigin);
+    }
+    private static boolean googleHost(String url) {
+        try {
+            String host = new URL(url).getHost().toLowerCase(java.util.Locale.ROOT);
+            return host.equals("google.com") || host.endsWith(".google.com") || host.equals("google.com.tr")
+                    || host.endsWith(".google.com.tr") || host.equals("maps.app.goo.gl") || host.equals("goo.gl");
+        } catch (Exception invalid) { return false; }
+    }
+    static String normalizeMapUrl(String url) {
+        String current = url.replace("&amp;", "&");
+        for (int i = 0; i < 5 && googleHost(current); i++) {
+            int query = current.indexOf('?'); if (query < 0) break;
+            String next = null;
+            for (String key : new String[]{"url", "link", "deep_link_id", "continue", "q"}) {
+                String candidate = queryValue(current.substring(query + 1).split("#", 2)[0], key);
+                if (candidate != null && googleHost(candidate) && (candidate.startsWith("https://") || candidate.startsWith("http://"))) { next = candidate; break; }
+            }
+            if (next == null || next.equals(current)) break;
+            current = next;
+        }
+        return current;
+    }
+    /** Only canonical/og:url metadata, never arbitrary numbers from scripts or map viewport JSON. */
+    static String mapMetadataUrl(String html) {
+        Matcher tags = Pattern.compile("<(?:meta|link)\\b[^>]{1,8192}>", Pattern.CASE_INSENSITIVE).matcher(html);
+        while (tags.find()) {
+            java.util.Map<String,String> attributes = new java.util.HashMap<>();
+            Matcher attr = Pattern.compile("([a-z:-]+)\\s*=\\s*[\"']([^\"']*)[\"']", Pattern.CASE_INSENSITIVE).matcher(tags.group());
+            while (attr.find()) attributes.put(attr.group(1).toLowerCase(java.util.Locale.ROOT), attr.group(2));
+            String value = "og:url".equalsIgnoreCase(attributes.get("property")) ? attributes.get("content")
+                    : "canonical".equalsIgnoreCase(attributes.get("rel")) ? attributes.get("href") : null;
+            if (value != null && googleHost(value)) return normalizeMapUrl(value);
+        }
+        return null;
+    }
     private static String followRedirects(String url) throws IOException {
         for (int i = 0; i < 10; i++) {
-            HttpURLConnection connection = (HttpURLConnection) new URL(url).openConnection();
-            connection.setInstanceFollowRedirects(false);
-            connection.setConnectTimeout(8000);
-            connection.setReadTimeout(8000);
-            connection.setRequestMethod("GET");
-            connection.setRequestProperty("User-Agent", "Mozilla/5.0 ToggCompanion");
-            int status;
-            try { status = connection.getResponseCode(); }
-            finally { }
-            String location = connection.getHeaderField("Location");
-            connection.disconnect();
-            if (status == 301 || status == 302 || status == 303 || status == 307 || status == 308) {
-                if (location == null) throw new IOException("Harita bağlantısı yönlendirmesi geçersiz.");
-                url = new URL(new URL(url), location).toString();
-            } else return url;
+            url = normalizeMapUrl(url);
+            GezPoint known = parseUrlForTest(url);
+            if (known != null && hasResolvedStops(known)) return url;
+            URL target = new URL(url);
+            if (!"https".equalsIgnoreCase(target.getProtocol()) && !"http".equalsIgnoreCase(target.getProtocol())) throw new IOException("Harita bağlantısı geçersiz.");
+            HttpURLConnection connection = (HttpURLConnection) target.openConnection();
+            try {
+                connection.setInstanceFollowRedirects(false);
+                connection.setConnectTimeout(8000); connection.setReadTimeout(8000);
+                connection.setRequestMethod("GET"); connection.setRequestProperty("User-Agent", "Mozilla/5.0 ToggCompanion");
+                int status = connection.getResponseCode();
+                if (status == 301 || status == 302 || status == 303 || status == 307 || status == 308) {
+                    String location = connection.getHeaderField("Location");
+                    if (location == null) throw new IOException("Harita bağlantısı yönlendirmesi geçersiz.");
+                    url = new URL(target, location).toString(); continue;
+                }
+                if (status < 200 || status >= 300) throw new IOException("Harita bağlantısı açılamadı (HTTP " + status + ").");
+                if (googleHost(url) && connection.getContentType() != null && connection.getContentType().toLowerCase(java.util.Locale.ROOT).contains("text/html")) {
+                    StringBuilder html = new StringBuilder();
+                    try (java.io.Reader reader = new java.io.InputStreamReader(connection.getInputStream(), StandardCharsets.UTF_8)) {
+                        char[] buffer = new char[4096]; int size;
+                        while (html.length() < 131072 && (size = reader.read(buffer, 0, Math.min(buffer.length, 131072 - html.length()))) > 0) html.append(buffer, 0, size);
+                    }
+                    String canonical = mapMetadataUrl(html.toString());
+                    if (canonical != null && !canonical.equals(url)) { url = canonical; continue; }
+                }
+                return url;
+            } finally { connection.disconnect(); }
         }
         throw new IOException("Harita bağlantısı çok fazla yönlendirme içeriyor.");
     }
@@ -258,7 +346,7 @@ public final class GezRouteBridge {
     private static GezPoint point(String latText, String lonText, String name) {
         try {
             double lat = Double.parseDouble(latText), lon = Double.parseDouble(lonText);
-            if (lat < -90 || lat > 90 || lon < -180 || lon > 180) return null;
+            if (!Double.isFinite(lat) || !Double.isFinite(lon) || lat < -90 || lat > 90 || lon < -180 || lon > 180) return null;
             return new GezPoint(lat, lon, name);
         } catch (NumberFormatException e) { return null; }
     }
@@ -276,6 +364,43 @@ public final class GezRouteBridge {
                 stops.add(p);
             }
             else if (!decoded.contains("=")) stops.add(new GezPoint(0, 0, decoded));
+        }
+        return stops;
+    }
+
+    /** Match embedded coordinates to their own route leg, never to a map viewport
+     * or to a different named stop. Google's !NmK counts the next K wire tokens. */
+    private static List<GezPoint> parseDirectionStopsWithData(String[] segments, String url) {
+        List<GezPoint> stops = parseDirectionStops(segments);
+        int start = url.indexOf("data=");
+        if (start < 0 || stops.isEmpty()) return stops;
+        String data = decode(url.substring(start + 5).split("[?&#]", 2)[0]);
+        String[] tokens = data.split("!");
+        // Only the Maps directions envelope is supported here. Unknown structures
+        // retain geocoding rather than guessing a correspondence between stops.
+        if (tokens.length < 4 || !tokens[1].matches("4m\\d+") || !tokens[2].matches("4m\\d+")) return stops;
+        List<GezPoint> hints = new ArrayList<>();
+        try {
+            int routeSize = Integer.parseInt(tokens[2].substring(2));
+            if (routeSize > tokens.length - 3) return stops;
+            int routeEnd = 3 + routeSize;
+            for (int i = 3; i < routeEnd && tokens[i].matches("1m\\d+");) {
+                int size = Integer.parseInt(tokens[i].substring(2));
+                if (size > routeEnd - i - 1) return stops;
+                int end = i + 1 + size;
+                StringBuilder block = new StringBuilder();
+                for (int j = i + 1; j < end; j++) block.append('!').append(tokens[j]);
+                List<GezPoint> coordinates = parseDataStops(block.toString());
+                if (coordinates.size() > 1) return stops;
+                hints.add(coordinates.isEmpty() ? null : coordinates.get(0));
+                i = end;
+            }
+        } catch (NumberFormatException invalid) { return stops; }
+        if (hints.size() != stops.size()) return stops;
+        for (int i = 0; i < stops.size(); i++) {
+            GezPoint stop = stops.get(i), hint = hints.get(i);
+            if (hint != null && stop.lat == 0 && stop.lon == 0 && stop.name != null)
+                stops.set(i, new GezPoint(hint.lat, hint.lon, stop.name));
         }
         return stops;
     }
@@ -342,9 +467,10 @@ public final class GezRouteBridge {
         while (m.find()) last = new String[]{m.group(1), m.group(2)};
         return last;
     }
-    private static String decode(String s) { try { return URLDecoder.decode(s.replace("+", "%2B"), "UTF-8"); } catch (Exception e) { return s; } }
+    private static String decode(String s) { try { return URLDecoder.decode(s, "UTF-8"); } catch (Exception e) { return s; } }
     private static String encodeUriComponent(String value) {
-        return URLEncoder.encode(value, StandardCharsets.UTF_8).replace("+", "%20");
+        try { return URLEncoder.encode(value, "UTF-8").replace("+", "%20"); }
+        catch (java.io.UnsupportedEncodingException impossible) { throw new AssertionError(impossible); }
     }
 
     public static String buildShareUrl(double lat, double lon, String name) {
@@ -414,6 +540,8 @@ public final class GezRouteBridge {
         }
         new TvaApiClient(storage).sendRouteToVehicle(point, new TvaApiClient.DestinationCallback() {
             @Override public void onSuccess(String message) { callback.onSuccess(message); }
+            @Override public void onAccepted(String message) { callback.onAccepted(message); }
+            @Override public void onUncertain(String message) { callback.onUncertain(message); }
             @Override public void onError(String message) { callback.onError(message); }
         });
     }

@@ -198,7 +198,7 @@ public final class TelemetryDatabaseHelper extends SQLiteOpenHelper {
         int trunkIdx = c.getColumnIndex(COL_TRUNK_OPEN);
         boolean trunk = (trunkIdx != -1 && !c.isNull(trunkIdx)) && (c.getInt(trunkIdx) == 1);
         int modeIdx = c.getColumnIndex(COL_DRIVE_MODE);
-        String mode = (modeIdx != -1 && !c.isNull(modeIdx)) ? c.getString(modeIdx) : "Comfort";
+        String mode = (modeIdx != -1 && !c.isNull(modeIdx)) ? c.getString(modeIdx) : "";
         int headIdx = c.getColumnIndex(COL_HEADLIGHTS_ON);
         boolean headlights = (headIdx != -1 && !c.isNull(headIdx)) && (c.getInt(headIdx) == 1);
         int readyIdx = c.getColumnIndex(COL_IS_READY_TO_DRIVE);
@@ -210,7 +210,7 @@ public final class TelemetryDatabaseHelper extends SQLiteOpenHelper {
                 c.getInt(c.getColumnIndexOrThrow(COL_BATTERY_SOC)),
                 c.getInt(c.getColumnIndexOrThrow(COL_RANGE_KM)),
                 c.getInt(c.getColumnIndexOrThrow(COL_IS_CHARGING)) == 1,
-                c.getDouble(c.getColumnIndexOrThrow(COL_CHARGE_POWER)),
+                c.isNull(c.getColumnIndexOrThrow(COL_CHARGE_POWER)) ? -1.0 : c.getDouble(c.getColumnIndexOrThrow(COL_CHARGE_POWER)),
                 c.getInt(c.getColumnIndexOrThrow(COL_LOW_VOLTAGE)),
                 c.getDouble(c.getColumnIndexOrThrow(COL_CABIN_TEMP)),
                 c.getDouble(c.getColumnIndexOrThrow(COL_TARGET_HVAC)),

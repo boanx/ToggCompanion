@@ -2,13 +2,29 @@
 
 Samsung telefonlar ve Samsung Galaxy Watch (Wear OS 3/4/5) akıllı saatler için Togg T10F araçlarına özel geliştirilmiş hafif, batarya dostu ve AMOLED siyah temalı yerel yardımcı ekosistem.
 
-## Güncel durum — 12 Ekim 2026
+## Güncel durum — 18 Kasım 2026
 
-Smart Access sertifika/imzalı BLE oturumu, doğrudan rota aktarımı ve pastel OLED
-Glass görünümü kaynak kodda uygulanmıştır. Rota aktarımındaki HTTP 301 için
-navigasyon API alan adı düzeltilmiştir. Fiziksel araç doğrulaması manueldir.
+Telefon sürümü **1.1** (versionCode2). Son paket şarjda yanlış “bağlı değil”
+gösterimini düzelten CHRGMODE_CHARGE/metinsel durum ayrıştırmasını içerir.
+Şarj gücü servisten gelirse gösterilir; ölçüm yoksa yalnız “Şarj oluyor” yazar.
+Sabit11/120kWvarsayımları kaldırılmıştır.
 
-Güncel telefon APK’sı HTTP301 düzeltmesini,4 dakikalık ABRP otomatik rota/telemetri kontrolünü ve One UI widget düzenlemesini içerir. Batarya yüzdelerinin siyah etiketleri kaldırıldı; yenileme butonu %80 boyuta küçültülüp ikon ortalandı. Android/araç canlı doğrulaması manueldir.
+- Yol Tarifi sayfasından doğrudan araca hedef/rota aktarımı.
+- ABRP'ye kullanıcı açıp kapatabildiği1dakikalık batarya/Yolculuğum tüketim
+  aktarımı. ABRP rota değişikliğini otomatik araca gönderme kaldırıldı.
+- Ayarlar → Kilometre paylaşımı: kullanıcı seçtiği Drive belge sağlayıcısında
+  tek JSON, başlangıç tarih/saati ve en az15dakikalık tekrar aralığı.
+- Gerçek odometre, düzeltilmiş yolculuk süresi/sürüş modu, kayıtlı kart sırası,
+  widget araç veri zamanı/yenilemesi ve araç-konum kapsamlı harita kaydı.
+- Paylaşılabilir, hassas verileri maskeleyen uygulama günlüğü.
+
+Son telefon paketi163test ve lint0hata/330uyarı ile doğrulandı; APK v2imzası
+kontrol edildi. Gerçek şarj/Drive eşitlemesi için fiziksel doğrulama hâlâ gerekir.
+Bulut sorgusu yapmak aracın yeni ölçüm yayımladığını garanti etmez.
+Smart Access'te paylaşılan sertifika alınmıştır; araçta imzalı BLE oturumu ve
+kilit/bagaj/e-motor kontrollerinin çalışması henüz doğrulanmamıştır.
+
+[1.1 telefon paketi ve sürüm notları](https://github.com/boanx/ToggCompanion/releases/tag/v1.1-20261118).
 
 APK: [GitHub Releases](https://github.com/boanx/ToggCompanion/releases). Kullanım ve geliştirme: [Agent devir rehberi](docs/AGENT_HANDOFF.md). Kullanıcı açıkça istemeden yeni APK derlenmez.
 
@@ -50,4 +66,8 @@ Mimari kanallar, operasyonel öğrenimler ve katkı kuralları için [Mühendisl
 
 ## Güncel saat teslimi
 
-Son kaynaklardan Wear OS debug APK’sı da derlendi; [GitHub Releases](https://github.com/boanx/ToggCompanion/releases) üzerinden saat paketini alın. Saat minSDK30 ve telefonla aynı paket/imza gerektirir. Kurulum/eşitleme adımları [Agent devir rehberinde](docs/AGENT_HANDOFF.md). Fiziksel saat doğrulaması manueldir.
+Son saat APK'sı12Ekim2026tarihli ayrı [Wear sürümündedir](https://github.com/boanx/ToggCompanion/releases/tag/v1.0-20261012-wear).
+18Kasım telefon paketlemesinde saat APK'sı yeniden derlenmedi; güncel saat
+kaynaklarındaki şarj gösterimi değişiklikleri eski saat APK'sında bulunmaz.
+Saat minSDK30ve telefonla aynı paket/imza gerektirir. Kurulum/eşitleme adımları
+[Agent devir rehberinde](docs/AGENT_HANDOFF.md). Fiziksel saat doğrulaması manueldir.

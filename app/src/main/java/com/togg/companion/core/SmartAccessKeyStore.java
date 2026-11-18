@@ -31,7 +31,14 @@ public final class SmartAccessKeyStore {
     }
 
     public synchronized void ensureKey(String truId, String vin) throws GeneralSecurityException {
-        String alias = alias(truId, vin);
+        ensureAlias(alias(truId, vin));
+    }
+
+    public synchronized void ensurePhoneKey(String truId) throws GeneralSecurityException {
+        ensureAlias(phoneAlias(truId));
+    }
+
+    private void ensureAlias(String alias) throws GeneralSecurityException {
         synchronized (KEY_CREATION_LOCK) {
         try {
             KeyStore store = store();
@@ -49,8 +56,16 @@ public final class SmartAccessKeyStore {
     }
 
     public synchronized byte[] getPublicKey(String truId, String vin) throws GeneralSecurityException {
+        return getPublicKeyAlias(alias(truId, vin));
+    }
+
+    public synchronized byte[] getPhonePublicKey(String truId) throws GeneralSecurityException {
+        return getPublicKeyAlias(phoneAlias(truId));
+    }
+
+    private byte[] getPublicKeyAlias(String alias) throws GeneralSecurityException {
         try {
-            java.security.cert.Certificate certificate = store().getCertificate(alias(truId, vin));
+            java.security.cert.Certificate certificate = store().getCertificate(alias);
             if (certificate == null || !(certificate.getPublicKey() instanceof ECPublicKey)) {
                 throw new GeneralSecurityException("Bu kullanıcı ve araç için Smart Access anahtarı yok.");
             }
@@ -60,9 +75,17 @@ public final class SmartAccessKeyStore {
     }
 
     public synchronized byte[] sign(String truId, String vin, byte[] data) throws GeneralSecurityException {
+        return signAlias(alias(truId, vin), data);
+    }
+
+    public synchronized byte[] signPhoneKey(String truId, byte[] data) throws GeneralSecurityException {
+        return signAlias(phoneAlias(truId), data);
+    }
+
+    private byte[] signAlias(String alias, byte[] data) throws GeneralSecurityException {
         if (data == null || data.length == 0 || data.length > 4096) throw new GeneralSecurityException("İmzalanacak mesaj geçersiz.");
         try {
-            KeyStore.Entry entry = store().getEntry(alias(truId, vin), null);
+            KeyStore.Entry entry = store().getEntry(alias, null);
             if (!(entry instanceof KeyStore.PrivateKeyEntry)) throw new GeneralSecurityException("Smart Access özel anahtarı yok.");
             Signature signer = Signature.getInstance("SHA256withECDSA");
             signer.initSign(((KeyStore.PrivateKeyEntry) entry).getPrivateKey());
@@ -144,7 +167,15 @@ public final class SmartAccessKeyStore {
     }
 
     private static String alias(String truId, String vin) throws GeneralSecurityException {
-        byte[] hash = MessageDigest.getInstance("SHA-256").digest((normalizeTruId(truId) + ":" + normalizeVin(vin)).getBytes(StandardCharsets.UTF_8));
+        return scopedAlias(normalizeTruId(truId) + ":" + normalizeVin(vin));
+    }
+
+    private static String phoneAlias(String truId) throws GeneralSecurityException {
+        return scopedAlias(normalizeTruId(truId) + ":PhoneKey");
+    }
+
+    private static String scopedAlias(String scope) throws GeneralSecurityException {
+        byte[] hash = MessageDigest.getInstance("SHA-256").digest(scope.getBytes(StandardCharsets.UTF_8));
         StringBuilder result = new StringBuilder("togg_companion_smart_access_");
         for (byte value : hash) result.append(String.format(Locale.ROOT, "%02x", value & 255));
         return result.toString();
